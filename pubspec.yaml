@@ -1,0 +1,28 @@
+name: rubik_cube_solver
+description: "A real-time Rubik's Cube AR solver and tutor app for Android built with Flutter, YOLO-OBB, and Kociemba/CFOP dual engines."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  ffi: ^2.1.0
+  camera: ^0.10.5+9
+  flutter_riverpod: ^2.5.1
+  google_fonts: ^6.1.0
+  vibration: ^2.0.1
+  audioplayers: ^6.0.0
+  cupertino_icons: ^1.0.6
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/models/
