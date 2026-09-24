@@ -5,7 +5,7 @@
 检查手段：
 1. 逐文件通读全部源码与配置；
 2. 用本机 NDK 27.2 的 `clang++ --target=aarch64-linux-android26 -std=c++17 -Wall -Wextra -fsyntax-only` 对 C++ 引擎做编译级校验（结果：**0 error / 9 warning**，其中多条警告即为"未实现"的直接证据）；
-3. 尝试 `flutter analyze` / `dart analyze` —— 两者均因本机系统级故障 `CreateFile failed 231（所有管道实例都在使用中）` 无法启动语言服务器，故 **Dart 侧为人工评审结论**（详见"检查局限"）。
+3. Dart 静态分析：检查当时因本机系统级故障（`CreateFile failed 231`）无法执行，Dart 侧结论来自人工评审。**该故障已于同日解除（见第十节），全部 Dart 代码随后经 Dart 编译器实际编译通过并成功产出 APK** —— 因此下面"检查局限"中关于分析器不可用的部分已失效。
 
 ---
 
@@ -18,10 +18,10 @@
 | 原生引擎功能 | ❌ **核心全部为占位假实现** | Kociemba、CFOP、视觉识别、步进校验、AR 投影 5 个引擎全部返回硬编码结果 |
 | 原生 ↔ Dart 接线 | ❌ 断裂 | 原生管线句柄从未初始化，整条 FFI 管线静默失效 |
 | Flutter 业务/UI | ❌ 演示级 | 无摄像头、无真实扫描，界面按钮驱动写死数据 |
-| Android 构建 | 🟡 **4 处阻断已全部修复**（见第十节），配置阶段与原生编译均已实测通过；最后一步被本机 Dart 环境缺陷挡住 | 见第三节、第十节 |
+| Android 构建 | ✅ **已可出包**（见第十节）：4 处阻断 + 环境恢复后暴露的 3 个依赖问题全部修复，debug 与 release APK 均已产出并校验 | 见第三节、第十节 |
 | 工程化 | 🟡 缺失 | 无 lint 配置、无测试、无 `.metadata`、5 个未使用重依赖 |
 
-**一句话**：这是一个**架构设计完整、视觉与求解的"骨架零件"有真材实料，但所有智能内核都还是占位桩、并且 Android 工程无法构建**的半成品。当前的"可运行行为"仅为：扫描页点 6 次按钮 → 立刻显示"魔方已成功复原"。
+**一句话**：这是一个**架构设计完整、视觉与求解的"骨架零件"有真材实料，但所有智能内核都还是占位桩**的半成品（Android 构建阻断已于同日修复并成功出包，见第十节）。装上 APK 后的"可运行行为"依然是：扫描页点 6 次按钮 → 立刻显示"魔方已成功复原"。
 
 ---
 
@@ -36,7 +36,7 @@ assets/     仅 models/README.md（模型文件不存在）
 
 ---
 
-## 三、P0-A：Android 构建阻断（4 项，当前 100% 构建失败）
+## 三、P0-A：Android 构建阻断（4 项）—— **已于同日全部修复并成功出包，见第十节**
 
 ### 1. `settings.gradle` 使用了已被删除的旧式插件加载方式 —— 配置阶段直接抛异常
 
@@ -215,7 +215,7 @@ clang 明确给出 `-Wtautological-constant-out-of-range-compare`：`matchCorner
 | `settings.gradle` 使用已被删除的 `app_plugin_loader.gradle`（该文件在本机 SDK 里第一件事就是 `throw`） | 删除旧 Groovy 文件，新建 `android/settings.gradle.kts`：官方声明式插件加载（`pluginManagement { includeBuild("<flutter sdk>/packages/flutter_tools/gradle") }` + `plugins { dev.flutter.flutter-plugin-loader 1.0.0 / com.android.application 9.1.0 / org.jetbrains.kotlin.android 2.4.0 }`） | Gradle 9.3.1 下配置阶段通过；Flutter Gradle 插件从源码编译成功（`:gradle:jar`） |
 | `com.android.application` / `kotlin-android` / `dev.flutter.flutter-gradle-plugin` 三个插件无版本来源（无 `buildscript`、无 `pluginManagement`） | 版本改由 `settings.gradle.kts` 的 `plugins` 块声明；`android/build.gradle.kts` 按官方模板重建（仅额外加仓库镜像） | `> Configure project :app` 无报错；`:audioplayers_android` 等插件工程正常配置 |
 | `res/` 目录整体不存在，而 Manifest 引用 `@mipmap/ic_launcher`、`@style/LaunchTheme`、`@style/NormalTheme` | 从官方模板生成物复制完整 `res/`：`values/styles.xml`、`values-night/styles.xml`、`drawable/` 与 `drawable-v21/launch_background.xml`、`mipmap-{m,h,xh,xxh,xxxh}dpi/ic_launcher.png`；同时补 `src/debug/AndroidManifest.xml`、`src/profile/AndroidManifest.xml` | 所有被引用的资源均已有对应文件 |
-| `ndkVersion "25.1.8937393"` 本机未安装（只有 `27.2.12479018`） | 固定为已安装的 `27.2.12479018`，并在 `app/build.gradle.kts` 留注释说明取舍 | **`:app:buildCMakeDebug` → BUILD SUCCESSFUL（47s），arm64-v8a / armeabi-v7a / x86_64 三个 ABI 全部产出 `librubik_core.so`** |
+| `ndkVersion "25.1.8937393"` 本机未安装 | 最终定为 **`flutter.ndkVersion`**（= `28.2.13676358`，与插件声明完全一致，见 10.3） | **`:app:buildCMakeDebug` → BUILD SUCCESSFUL，三个 ABI 全部产出 `librubik_core.so`；最终 `flutter build apk` 成功出包** |
 | 缺 `android.useAndroidX=true` | `gradle.properties` 按官方模板重建（含 `useAndroidX` 与 `jvmargs`），保留原有 `builtInKotlin` / `newDsl` 标记 | 配置阶段通过 |
 
 ### 关键修复：dl.google.com 直连失败的真正原因
@@ -240,7 +240,7 @@ clang 明确给出 `-Wtautological-constant-out-of-range-compare`：`matchCorner
    - `SolverScreen.initState`：同步 FFI 求解加 `try/catch`，求解失败展示错误页，不再首帧崩溃。
 4. **补齐工程化文件**：`.metadata`（Flutter 项目元数据，此前缺失正是平台工程大面积不全的根因）、`analysis_options.yaml`（`flutter_lints` 由此才真正生效）。
 
-## 10.3 仍被阻塞：本机 Dart 环境缺陷（与项目无关）
+## 10.3 已解除：本机 Dart 环境缺陷（与项目无关）
 
 `flutter build` 的 Gradle 部分已全程通过，最终停在这里：
 
@@ -264,29 +264,57 @@ Process.start('cmd.exe', ['/c', 'echo started']); // FAIL: ERROR_PIPE_BUSY (231)
 
 | 组件 | 现象 | 判定 |
 |---|---|---|
-| `ahflt`（微软电脑管家） | 过滤器已加载 **7 个实例**、高度 385250.1、状态位 `0x04`（异常，正常为 `0x07`）；但 `System32\drivers\ahflt.sys` **文件已不存在**，`C:\Program Files\Microsoft PC Manager` 也已删除 | **幽灵驱动**：卸载残留，重启前持续挂在 `\Device\NamedPipe` 上 |
-| `sysdiag`（火绒） | 驱动已加载 8 个实例（高度 324600）、`sysdiag.sys` 存在（2026-09-21）；`HipsTray` 在跑，但**无 `HipsDaemon` 进程、`HRWSCCtrl` 服务为 Stopped**，`C:\Program Files\Huorong` 不存在 | **半残状态**：内核驱动在跑、用户态守护进程缺失 |
+| `ahflt`（微软电脑管家） | 过滤器已加载 **7 个实例**、高度 385250.1、状态位 `0x04`（异常，正常为 `0x07`）；但 `System32\drivers\ahflt.sys` **文件已不存在**，`C:\Program Files\Microsoft PC Manager` 也已删除 | **幽灵驱动**（真残留）。但 `fltmc unload ahflt` 成功清除后**故障依旧 → 已排除，非责任方** |
+| `sysdiag` + `HipsTray`（火绒） | 驱动已加载 8 个实例（高度 324600）、`sysdiag.sys` 存在；`HipsTray` 在跑，`HRWSCCtrl` 服务为 Stopped。**火绒完整安装在 `D:\Program Files\Huorong\Sysdiag`**（此前只查 C 盘，一度误判为残留，特此更正） | **责任方**，但拦截来自其用户态 HIPS 防护开关，不是驱动注册本身（见下） |
 | `WdFilter` / `UCPD` | 状态位 `0x07` / `0x0f`，正常 | Windows 自带，非责任方 |
 
 同时排除：**不是管道泄漏**（`\\.\pipe\` 下无任何残留 `dart_*` 管道）、**不是残留进程**（无 dart / dartaotruntime 进程）。
 
-### 重启后的操作
+### 解除方式：用户退出火绒主程序
 
-```powershell
-cd C:\project\Rubik-Cube
-flutter build apk --debug      # 或 flutter run
+用户从托盘退出火绒后，探针**立即全部转绿**：
+
+```
+runSync      : OK -> sync-ok
+start        : OK -> async-ok (exit=0)
+inheritStdio : OK -> exit=0
 ```
 
-预期可产出 `app-debug.apk` —— 构建侧阻塞已全部消除，只剩 Dart 编译这一步。
+**关键判据（反直觉，务必注意）**：恢复那一刻，`sysdiag` 驱动**仍注册（8 实例）**、`HipsTray.exe` **仍在运行**。说明拦截来自**用户态 HIPS 的管道防护开关**，不是 minifilter 注册本身。因此：
 
-若重启后仍报 231，按此顺序排查：修复或退出火绒（消除半残状态）→ 清理微软电脑管家残留（`fltmc unload ahflt`，需管理员）→ 干净启动定位。
+- `fltmc unload sysdiag` 被拒**不代表无解**，也不必卸载或强杀火绒——让用户退出主程序即可（几秒钟）。
+- **不能只看 `fltmc filters` 里有没有某驱动来判定责任方**；驱动在 ≠ 拦截在生效。唯一可靠判据是跑一次探针。
+- 反之，能成功 `fltmc unload` 清掉的 `ahflt` 反而是无辜的。
 
-## 10.4 回滚方式
+### 环境恢复后追加修复的 3 个问题
+
+| 问题 | 报错 | 修复 |
+|---|---|---|
+| NDK 版本落后于插件 | `Your project is configured with Android NDK 27.2.12479018, but the following plugin(s) depend on a different Android NDK version` —— `jni` / `jni_flutter` / `camera_android` / `audioplayers_android` / `vibration` / `device_info_plus` / `flutter_plugin_android_lifecycle` 全部要求 `28.2.13676358` | `app/build.gradle.kts` 的 `ndkVersion` 改为 **`flutter.ndkVersion`**（插件自己的 build 脚本用的正是这个值，两边自动一致）。本机已装 `28.2.13676358` |
+| 插件硬编码过旧 compileSdk | `Execution failed for task ':vibration:checkDebugAarMetadata'` → `Dependency 'androidx.fragment:1.7.1' requires ... compile against version 34 or later`、`:vibration is currently compiled against android-33`（共 15 项） | `vibration: ^2.0.1`（解析为 2.1.0，其 `android/build.gradle` 写死 `compileSdkVersion 33`）**升级为 `^3.1.8`**（解析为 3.2.1，`compileSdk = 34`）。该包在 `lib/` 中零引用，升级无代码影响 |
+| 手写 `abiFilters` 与拆分冲突 | `Conflicting configuration : 'armeabi-v7a,arm64-v8a,x86_64' in ndk abiFilters cannot be present when splits abi filters are set` | **删除 `defaultConfig` 里手写的 `ndk { abiFilters += ... }`**。Flutter Gradle 插件在未拆分时会自行 `abiFilters.clear()` 后设为 `PLATFORM_ABI_LIST`（`FlutterPluginConstants.kt`，即同样三个 ABI），手写反而覆盖其逻辑并打死 `--split-per-abi` |
+
+## 10.4 构建产物与验证（2026-09-24 17:26）
+
+```
+build/app/outputs/flutter-apk/
+├── app-arm64-v8a-release.apk    16.9 MB   ← 真机安装用（绝大多数在售手机）
+├── app-armeabi-v7a-release.apk  13.8 MB
+├── app-x86_64-release.apk       18.2 MB   ← 模拟器
+└── app-debug.apk               154.6 MB   ← 含调试符号 + Vulkan validation layer
+```
+
+- **包内容校验**：三个 release 包均含 AOT 产物 `libapp.so`、`libflutter.so`、`librubik_core.so`（本项目原生引擎）、`libc++_shared.so`、`libdartjni.so`；`zipfile.testzip()` 无损坏；`sha1` 与随附 `.sha1` 一致。
+- **清单校验**（aapt2 badging）：`package=com.daoge.rubik_cube`、`versionName=1.0.0`、`compileSdk=36` / `targetSdk=36`、`application-label="Rubik AR"`、权限 `INTERNET` / `CAMERA` / `VIBRATE` / `RECORD_AUDIO` 均符合预期。
+- **回归校验**：删除 `abiFilters` 后重跑 `flutter build apk --debug`（未拆分模式），包内仍含全部 3 个 ABI。
+- **首次取得编译级校验**：本项目的**全部 Dart 代码**（含此前只能人工评审的 UI 层）已由 Dart 编译器实际编译通过并产出 AOT 快照，不再只是人工评审结论。
+
+## 10.5 回滚方式
 
 原 6 个配置文件已备份至 `.workbuddy/backup/`：`settings.gradle`、`build.gradle`、`app-build.gradle`、`gradle.properties`、`gradle-wrapper.properties`、`AndroidManifest.xml`。
 
-## 10.5 尚未处理（属于后续步骤）
+## 10.6 尚未处理（属于后续步骤）
 
-- `camera` / `flutter_riverpod` / `google_fonts` / `vibration` / `audioplayers` 5 个依赖仍未被使用：**保留**是有意的（`camera` 属第 3 步必需），但会拉长首次构建时间并引入额外的 Dart build hook。
-- NDK 建议后续升到 `28.2.13676358`（Flutter 模板默认值）：本次固定 27.2 是为了不额外下载约 1GB，且已实测可用。届时应把 `ndkVersion` 改回 `flutter.ndkVersion`。
+- `camera` / `flutter_riverpod` / `google_fonts` / `audioplayers`（及已升级的 `vibration`）仍未被业务代码使用：**保留**是有意的（`camera` 属第 3 步必需），但会拉长首次构建时间并引入额外的 Dart build hook。
 - `ScanScreen` 仍是"模拟扫描 + 硬编码已还原魔方"的演示流程；`ScannerService` 已可用但尚无 UI 消费方——两者都留待第 3 步（真视觉）时一并改造。
+- 原生引擎的 5 处占位实现（见第四节）仍未动：装上 APK 后 App 的实际行为依然是"点 6 次 → 直接显示复原完成"。

@@ -13,7 +13,7 @@ dependencies:
   camera: ^0.10.5+9
   flutter_riverpod: ^2.5.1
   google_fonts: ^6.1.0
-  vibration: ^2.0.1
+  vibration: ^3.1.8
   audioplayers: ^6.0.0
   cupertino_icons: ^1.0.6
 

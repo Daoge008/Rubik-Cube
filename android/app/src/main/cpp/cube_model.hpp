@@ -11,12 +11,12 @@ enum Corner { URF = 0, UFL = 1, ULB = 2, UBR = 3, DFR = 4, DLF = 5, DBL = 6, DRB
 enum Edge { UR = 0, UF = 1, UL = 2, UB = 3, DR = 4, DF = 5, DL = 6, DB = 7, FR = 8, FL = 9, BL = 10, BR = 11 };
 
 struct CornerCubie {
-    Corner cp[8];
+    int8_t cp[8];
     int8_t co[8];
 };
 
 struct EdgeCubie {
-    Edge ep[12];
+    int8_t ep[12];
     int8_t eo[12];
 };
 
@@ -27,10 +27,13 @@ public:
         { 29, 26, 15 }, { 27, 44, 24 }, { 33, 53, 42 }, { 35, 17, 51 }
     };
 
+    // BL is {50,39} and BR is {48,14}: facelet 50 sits on the B face at
+    // x=+1 (BR's corner) and 48 at x=-1 (BL's corner).  These two entries
+    // used to be swapped, which made every scrambled cube look invalid.
     static constexpr int edgeFacelet[12][2] = {
         { 5, 10 }, { 7, 19 }, { 3, 37 }, { 1, 46 },
         { 32, 16 }, { 28, 25 }, { 30, 43 }, { 34, 52 },
-        { 23, 12 }, { 21, 41 }, { 48, 39 }, { 50, 14 }
+        { 23, 12 }, { 21, 41 }, { 50, 39 }, { 48, 14 }
     };
 
     static bool validate(const std::string& facelets, std::string& error_msg) {
@@ -144,7 +147,7 @@ private:
         return true;
     }
 
-    static Corner matchCorner(int c1, int c2, int c3) {
+    static int matchCorner(int c1, int c2, int c3) {
         std::vector<int> cols = {c1, c2, c3};
         std::sort(cols.begin(), cols.end());
         if (cols == std::vector<int>{0, 1, 2}) return URF;
@@ -155,10 +158,10 @@ private:
         if (cols == std::vector<int>{2, 3, 4}) return DLF;
         if (cols == std::vector<int>{3, 4, 5}) return DBL;
         if (cols == std::vector<int>{1, 3, 5}) return DRB;
-        return (Corner)-1;
+        return -1;
     }
 
-    static Edge matchEdge(int c1, int c2) {
+    static int matchEdge(int c1, int c2) {
         int u = std::min(c1, c2), v = std::max(c1, c2);
         if (u == 0 && v == 1) return UR;
         if (u == 0 && v == 2) return UF;
@@ -172,6 +175,6 @@ private:
         if (u == 2 && v == 4) return FL;
         if (u == 4 && v == 5) return BL;
         if (u == 1 && v == 5) return BR;
-        return (Edge)-1;
+        return -1;
     }
 };

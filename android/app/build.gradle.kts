@@ -8,10 +8,11 @@ android {
     namespace = "com.daoge.rubik_cube"
     compileSdk = flutter.compileSdkVersion
 
-    // Flutter 3.47.5 expects NDK 28.2.13676358 by default, but only 27.2.12479018 is
-    // installed on this machine. The native engine here is plain C++17 with no
-    // NDK-version-specific APIs, so pinning the installed NDK is safe.
-    ndkVersion = "27.2.12479018"
+    // Plugins that ship native code (jni, jni_flutter, audioplayers_android,
+    // camera_android, ...) declare ndkVersion = flutter.ndkVersion. Pinning a
+    // lower NDK here makes :plugin:checkDebugAarMetadata fail, so track Flutter's
+    // own default (it is installed locally).
+    ndkVersion = flutter.ndkVersion
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -25,9 +26,11 @@ android {
         versionCode = flutter.versionCode
         versionName = flutter.versionName
 
-        ndk {
-            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
-        }
+        // NOTE: do NOT add `ndk { abiFilters += ... }` here. The Flutter Gradle
+        // plugin already sets abiFilters programmatically to the platform ABI list
+        // (armeabi-v7a, arm64-v8a, x86_64) whenever `--split-per-abi` is NOT used.
+        // Hardcoding it here overrides that logic and makes `--split-per-abi` fail
+        // with "ndk abiFilters cannot be present when splits abi filters are set".
 
         externalNativeBuild {
             cmake {
