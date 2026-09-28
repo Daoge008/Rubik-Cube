@@ -1,28 +1,44 @@
 import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart';
 import '../../models/cube_state.dart';
 import '../native_bridge/rubik_ffi_bridge.dart';
 
 /// Dart-side view over the native multi-frame scan pipeline.
 ///
-/// The native engine owns the sliding window vote and the face locking logic;
-/// this class only mirrors what it currently reports so widgets can rebuild.
+/// The native engine owns the sampling, the colour classification, the sliding
+/// window vote and the recovery of each face's rotation; this class only mirrors
+/// what it currently reports so widgets can rebuild.
+///
 /// Every handle based call is a silent no-op while the engine is not ready,
 /// hence [isEngineReady] and [engineError] are exposed for the UI to surface.
-class ScannerService extends ChangeNotifier {
+class ScannerService {
   final RubikFfiBridge _bridge = RubikFfiBridge.instance;
+
+  FaceDetection? _lastDetection;
+
+  /// Most recent per-frame detection, for the live overlay.
+  FaceDetection? get lastDetection => _lastDetection;
 
   int _scannedFacesCount = 0;
   int get scannedFacesCount => _scannedFacesCount;
 
   bool _isComplete = false;
+
+  /// True once six faces have been locked in *and* stitched into a solvable
+  /// state. Six locked faces are not enough on their own: the stitched cube can
+  /// still be illegal, which is why [assemblyState] is surfaced separately.
   bool get isComplete => _isComplete;
 
   CubeState? _scannedState;
   CubeState? get scannedState => _scannedState;
 
-  /// True when `librubik_core.so` is loaded and the pipeline context exists.
+  /// Progress of the six-face stitch, as reported by the native side.
+  ScanAssemblyState get assemblyState =>
+      _lastDetection?.assembly ?? ScanAssemblyState.scanning;
+
+  /// Legal pieces found while stitching, out of 20.
+  int get assemblyScore => _lastDetection?.assemblyScore ?? 0;
+
   bool get isEngineReady => _bridge.isPipelineInitialized;
 
   /// Human readable reason why scanning cannot make progress, if any.
@@ -33,57 +49,62 @@ class ScannerService extends ChangeNotifier {
     _scannedFacesCount = 0;
     _isComplete = false;
     _scannedState = null;
-    notifyListeners();
+    _lastDetection = null;
   }
 
-  /// Feeds one raw camera frame into the native vision pipeline.
+  /// Feeds one YUV_420_888 frame straight from the camera's image stream.
   ///
-  /// [bytes] is a `bytesPerRow * height` buffer in the given [format]
-  /// (0 = RGBA8888). Returns the per-frame detection, or `null` when the
-  /// engine is not ready.
-  FaceDetection? processFrame(
-    Uint8List bytes, {
+  /// The camera already produces this layout, so nothing is converted in Dart:
+  /// a 720p RGB conversion done per pixel would cost more than the entire
+  /// recognition pipeline it feeds.
+  void processYuvFrame({
+    required Uint8List yPlane,
+    required int yStride,
+    required int yPixelStride,
+    required Uint8List uPlane,
+    required int uStride,
+    required int uPixelStride,
+    required Uint8List vPlane,
+    required int vStride,
+    required int vPixelStride,
     required int width,
     required int height,
-    int? bytesPerRow,
-    int format = 0,
+    required int rotationDegrees,
   }) {
-    final detection = _bridge.processFrame(
-      bytes,
+    if (!isEngineReady) return;
+
+    _lastDetection = _bridge.processFrameYuv(
+      yPlane: yPlane,
+      yStride: yStride,
+      yPixelStride: yPixelStride,
+      uPlane: uPlane,
+      uStride: uStride,
+      uPixelStride: uPixelStride,
+      vPlane: vPlane,
+      vStride: vStride,
+      vPixelStride: vPixelStride,
       width: width,
       height: height,
-      bytesPerRow: bytesPerRow,
-      format: format,
-    );
-    if (detection != null) {
-      syncFromNative();
-    }
-    return detection;
+      rotationDegrees: rotationDegrees,
+    ) ?? _lastDetection;
+
+    syncFromNative();
   }
 
   /// Pulls the latest face count and assembled cube state out of the engine.
   void syncFromNative() {
     if (!isEngineReady) return;
 
-    final faces = _bridge.getScannedFacesCount();
+    _scannedFacesCount = _bridge.getScannedFacesCount();
+
     final cubeString = _bridge.getScannedCubeString();
-
-    var changed = false;
-    if (faces != _scannedFacesCount) {
-      _scannedFacesCount = faces;
-      changed = true;
+    if (cubeString != null) {
+      if (_scannedState?.toSingmaster() != cubeString) {
+        _scannedState = CubeState.fromSingmaster(cubeString);
+      }
+      _isComplete = true;
+    } else {
+      _isComplete = false;
     }
-
-    final complete = cubeString != null;
-    if (complete != _isComplete) {
-      _isComplete = complete;
-      changed = true;
-    }
-    if (complete && _scannedState?.toSingmaster() != cubeString) {
-      _scannedState = CubeState.fromSingmaster(cubeString);
-      changed = true;
-    }
-
-    if (changed) notifyListeners();
   }
 }

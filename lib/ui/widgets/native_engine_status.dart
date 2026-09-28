@@ -1,11 +1,16 @@
 import 'package:flutter/material.dart';
-import '../../core/native_bridge/rubik_ffi_bridge.dart';
+
+import '../../core/native_bridge/native_selftest.dart';
 
 /// A one line, on-device proof that the Flutter <-> C++ FFI link is alive.
 ///
-/// Previously the native pipeline handle was never created, which made every
-/// scanner/validator call a silent no-op. This widget performs a small self
-/// test at build time so that failure is loud instead of invisible.
+/// The check is deliberately more than a "can I open the library" smoke test:
+/// it solves a set of fixed scrambled states and compares the answers with the
+/// ones measured on the host, so a broken pruning table or an arm64 specific
+/// miscompile shows up here rather than in a wrong solution handed to a user.
+///
+/// Every result is also written to logcat, which means a device run can be
+/// verified with `adb logcat` without anyone looking at the screen.
 class NativeEngineStatusBanner extends StatefulWidget {
   const NativeEngineStatusBanner({Key? key}) : super(key: key);
 
@@ -15,71 +20,45 @@ class NativeEngineStatusBanner extends StatefulWidget {
 }
 
 class _NativeEngineStatusBannerState extends State<NativeEngineStatusBanner> {
-  late final List<_EngineCheck> _checks;
-  late final bool _allPassed;
+  NativeSelfTestResult? _result;
+  int _done = 0;
+  int _total = 0;
 
   @override
   void initState() {
     super.initState();
-    _checks = _runSelfTest();
-    _allPassed = _checks.every((c) => c.passed);
+    // After the first frame: the cold start builds both pruning tables inside
+    // a synchronous FFI call, so running it during build would stall the very
+    // first paint.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _run());
   }
 
-  static const String _solvedFacelets =
-      'UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB';
+  Future<void> _run() async {
+    final result = await runNativeSelfTest(
+      onProgress: (done, total) {
+        if (!mounted) return;
+        setState(() {
+          _done = done;
+          _total = total;
+        });
+      },
+    );
 
-  List<_EngineCheck> _runSelfTest() {
-    final engine = RubikFfiBridge.instance;
-    final checks = <_EngineCheck>[];
+    // Mirrored to logcat on purpose: `adb logcat -s flutter` is enough to
+    // confirm or refute a device build.
+    final summary = result.allPassed
+        ? 'ALL PASSED'
+        : 'FAILURES: ${result.failureCount}';
+    debugPrint('=== rubik native self test ===');
+    debugPrint(result.log.trimRight());
+    debugPrint('=== $summary ===');
 
-    checks.add(_EngineCheck(
-      label: '原生库 librubik_core.so',
-      passed: engine.isLoaded,
-      detail: engine.isLoaded
-          ? '已加载，FFI 符号全部解析成功'
-          : (engine.loadError ?? '加载失败，原因未知'),
-    ));
-
-    checks.add(_EngineCheck(
-      label: '管线句柄 init_cube_pipeline',
-      passed: engine.isPipelineInitialized,
-      detail: engine.isPipelineInitialized
-          ? '已创建上下文，扫描 / 校验 / 跳步接口均可用'
-          : (engine.pipelineError ?? '未初始化，相关接口会静默失效'),
-    ));
-
-    if (!engine.isLoaded) {
-      checks.add(const _EngineCheck(
-        label: '状态校验 validate()',
-        passed: false,
-        detail: '已跳过：原生库未加载',
-      ));
-      checks.add(const _EngineCheck(
-        label: '求解内核 solve()',
-        passed: false,
-        detail: '已跳过：原生库未加载',
-      ));
-      return checks;
-    }
-
-    final validationError = engine.validate(_solvedFacelets);
-    checks.add(_EngineCheck(
-      label: '状态校验 validate()',
-      passed: validationError == null,
-      detail: validationError ?? '已还原状态通过颜色计数与 4 项守恒校验',
-    ));
-
-    final solution = engine.solveKociemba(_solvedFacelets);
-    checks.add(_EngineCheck(
-      label: '求解内核 solve()',
-      passed: solution == 'SOLVED',
-      detail: solution == 'SOLVED' ? '正确识别为已还原状态' : solution,
-    ));
-
-    return checks;
+    if (!mounted) return;
+    setState(() => _result = result);
   }
 
   void _showDetails() {
+    final result = _result;
     showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
@@ -89,49 +68,65 @@ class _NativeEngineStatusBannerState extends State<NativeEngineStatusBanner> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
-            children: _checks
-                .map((c) => Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Icon(
-                            c.passed
-                                ? Icons.check_circle_rounded
-                                : Icons.error_rounded,
-                            size: 18,
-                            color: c.passed
-                                ? const Color(0xFF00E676)
-                                : Colors.redAccent,
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  c.label,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w600,
-                                  ),
+            children: [
+              ...(result?.checks ?? const <SelfTestCheck>[]).map((c) => Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(
+                          c.passed
+                              ? Icons.check_circle_rounded
+                              : Icons.error_rounded,
+                          size: 18,
+                          color: c.passed
+                              ? const Color(0xFF00E676)
+                              : Colors.redAccent,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                c.label,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
                                 ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  c.detail,
-                                  style: const TextStyle(
-                                    color: Colors.white60,
-                                    fontSize: 12,
-                                  ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                c.detail,
+                                style: const TextStyle(
+                                  color: Colors.white60,
+                                  fontSize: 12,
                                 ),
-                              ],
-                            ),
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
-                    ))
-                .toList(),
+                        ),
+                      ],
+                    ),
+                  )),
+              if (result != null) ...[
+                const Divider(color: Colors.white12),
+                Text(
+                  '冷启动（含建表） '
+                  '${(result.coldStartMicros / 1000).toStringAsFixed(0)} ms\n'
+                  'Kociemba 平均 '
+                  '${(result.kociembaMicros / 1000 / kDeviceVectors.length).toStringAsFixed(0)} ms\n'
+                  'CFOP 平均 '
+                  '${(result.cfopMicros / 1000 / kDeviceVectors.length).toStringAsFixed(0)} ms',
+                  style: const TextStyle(
+                    color: Colors.white54,
+                    fontSize: 11,
+                    height: 1.6,
+                  ),
+                ),
+              ],
+            ],
           ),
         ),
         actions: [
@@ -146,43 +141,52 @@ class _NativeEngineStatusBannerState extends State<NativeEngineStatusBanner> {
 
   @override
   Widget build(BuildContext context) {
-    final color = _allPassed ? const Color(0xFF00E676) : Colors.redAccent;
+    final result = _result;
+    final running = result == null;
+
+    final Color color;
+    final IconData icon;
+    final String label;
+    if (running) {
+      color = Colors.white54;
+      icon = Icons.memory_rounded;
+      label = _total == 0 ? '原生引擎自检中…' : '原生引擎自检中… $_done/$_total';
+    } else if (result.allPassed) {
+      color = const Color(0xFF00E676);
+      icon = Icons.memory_rounded;
+      label = '原生引擎就绪';
+    } else {
+      color = Colors.redAccent;
+      icon = Icons.memory_outlined;
+      label = '原生引擎异常（${result.failureCount} 项）';
+    }
+
     return InkWell(
-      onTap: _showDetails,
+      onTap: running ? null : _showDetails,
       borderRadius: BorderRadius.circular(10),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              _allPassed ? Icons.memory_rounded : Icons.memory_outlined,
-              size: 16,
-              color: color,
-            ),
+            if (running)
+              const SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            else
+              Icon(icon, size: 16, color: color),
             const SizedBox(width: 8),
-            Text(
-              _allPassed ? '原生引擎就绪' : '原生引擎异常',
-              style: TextStyle(color: color, fontSize: 12),
-            ),
-            const SizedBox(width: 6),
-            const Icon(Icons.info_outline_rounded,
-                size: 14, color: Colors.white38),
+            Text(label, style: TextStyle(color: color, fontSize: 12)),
+            if (!running) ...[
+              const SizedBox(width: 6),
+              const Icon(Icons.info_outline_rounded,
+                  size: 14, color: Colors.white38),
+            ],
           ],
         ),
       ),
     );
   }
-}
-
-class _EngineCheck {
-  const _EngineCheck({
-    required this.label,
-    required this.passed,
-    required this.detail,
-  });
-
-  final String label;
-  final bool passed;
-  final String detail;
 }

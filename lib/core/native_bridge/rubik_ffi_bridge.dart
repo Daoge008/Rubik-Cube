@@ -32,6 +32,26 @@ final class NativeDetectionResult extends ffi.Struct {
 
   @ffi.Int32()
   external int totalSteps;
+
+  /// Frames accumulated for the face currently in view (0..[windowSize]).
+  @ffi.Int32()
+  external int faceFrameCount;
+
+  /// Frames a face needs in the majority vote before it is locked.
+  @ffi.Int32()
+  external int windowSize;
+
+  /// Cells of the current frame whose colour was ambiguous.
+  @ffi.Int32()
+  external int ambiguousCells;
+
+  /// 0 = still scanning, 1 = six faces aligned and solvable, 2 = alignment failed.
+  @ffi.Int32()
+  external int assemblyState;
+
+  /// Legal pieces found while aligning the six faces, out of 20.
+  @ffi.Int32()
+  external int assemblyScore;
 }
 
 typedef _NativeValidate = ffi.Int32 Function(
@@ -78,6 +98,7 @@ typedef _NativeProcessCameraFrame = ffi.Void Function(
     ffi.Int32 height,
     ffi.Int32 bytesPerRow,
     ffi.Int32 format,
+    ffi.Int32 rotationDegrees,
     ffi.Pointer<NativeDetectionResult> outResult);
 typedef _DartProcessCameraFrame = void Function(
     ffi.Pointer<ffi.Void> handle,
@@ -86,6 +107,38 @@ typedef _DartProcessCameraFrame = void Function(
     int height,
     int bytesPerRow,
     int format,
+    int rotationDegrees,
+    ffi.Pointer<NativeDetectionResult> outResult);
+
+typedef _NativeProcessCameraFrameYuv = ffi.Void Function(
+    ffi.Pointer<ffi.Void> handle,
+    ffi.Pointer<ffi.Uint8> yPlane,
+    ffi.Int32 yStride,
+    ffi.Int32 yPixelStride,
+    ffi.Pointer<ffi.Uint8> uPlane,
+    ffi.Int32 uStride,
+    ffi.Int32 uPixelStride,
+    ffi.Pointer<ffi.Uint8> vPlane,
+    ffi.Int32 vStride,
+    ffi.Int32 vPixelStride,
+    ffi.Int32 width,
+    ffi.Int32 height,
+    ffi.Int32 rotationDegrees,
+    ffi.Pointer<NativeDetectionResult> outResult);
+typedef _DartProcessCameraFrameYuv = void Function(
+    ffi.Pointer<ffi.Void> handle,
+    ffi.Pointer<ffi.Uint8> yPlane,
+    int yStride,
+    int yPixelStride,
+    ffi.Pointer<ffi.Uint8> uPlane,
+    int uStride,
+    int uPixelStride,
+    ffi.Pointer<ffi.Uint8> vPlane,
+    int vStride,
+    int vPixelStride,
+    int width,
+    int height,
+    int rotationDegrees,
     ffi.Pointer<NativeDetectionResult> outResult);
 
 typedef _NativeSetValidationSolution = ffi.Void Function(
@@ -111,6 +164,11 @@ class FaceDetection {
     required this.stepAdvanced,
     required this.currentStepIndex,
     required this.totalSteps,
+    required this.faceFrameCount,
+    required this.windowSize,
+    required this.ambiguousCells,
+    required this.assemblyState,
+    required this.assemblyScore,
   });
 
   final bool isDetected;
@@ -125,6 +183,51 @@ class FaceDetection {
   final bool stepAdvanced;
   final int currentStepIndex;
   final int totalSteps;
+
+  /// Frames accumulated for the face currently in view.
+  final int faceFrameCount;
+
+  /// Frames a face needs before the native side locks it in.
+  final int windowSize;
+
+  /// Cells whose runner-up colour was nearly as close, i.e. "probably, but
+  /// check the lighting".
+  final int ambiguousCells;
+
+  /// [ScanAssemblyState] as a raw int, for cheap comparison.
+  final int assemblyState;
+
+  /// Legal pieces found when aligning the six faces, out of 20.
+  final int assemblyScore;
+
+  ScanAssemblyState get assembly => ScanAssemblyState.fromValue(assemblyState);
+
+  /// Fraction of the vote window filled for the face in view, 0..1.
+  double get faceProgress =>
+      windowSize <= 0 ? 0 : (faceFrameCount / windowSize).clamp(0.0, 1.0);
+}
+
+/// Whether the six scanned faces could be stitched into a solvable cube.
+enum ScanAssemblyState {
+  /// Fewer than six faces have been locked in yet.
+  scanning,
+
+  /// All six faces aligned into a legal, solvable state.
+  assembled,
+
+  /// Six faces are in, but they do not describe a legal cube.
+  failed;
+
+  static ScanAssemblyState fromValue(int value) {
+    switch (value) {
+      case 1:
+        return ScanAssemblyState.assembled;
+      case 2:
+        return ScanAssemblyState.failed;
+      default:
+        return ScanAssemblyState.scanning;
+    }
+  }
 }
 
 const String _androidLibraryName = 'librubik_core.so';
@@ -147,6 +250,7 @@ class RubikFfiBridge {
   late _DartGetScannedFacesCount _getScannedFacesCount;
   late _DartGetScannedCubeString _getScannedCubeString;
   late _DartProcessCameraFrame _processCameraFrame;
+  late _DartProcessCameraFrameYuv _processCameraFrameYuv;
   late _DartSetValidationSolution _setValidationSolution;
   late _DartManualStepNavigate _manualStepNavigate;
 
@@ -209,6 +313,10 @@ class RubikFfiBridge {
         .asFunction();
     _processCameraFrame = lib
         .lookup<ffi.NativeFunction<_NativeProcessCameraFrame>>('process_camera_frame')
+        .asFunction();
+    _processCameraFrameYuv = lib
+        .lookup<ffi.NativeFunction<_NativeProcessCameraFrameYuv>>(
+            'process_camera_frame_yuv')
         .asFunction();
     _setValidationSolution = lib
         .lookup<ffi.NativeFunction<_NativeSetValidationSolution>>('set_validation_solution')
@@ -359,17 +467,23 @@ class RubikFfiBridge {
     }
   }
 
-  /// Feeds one camera frame into the native vision pipeline.
+  /// Feeds one packed frame into the native vision pipeline.
   ///
   /// [bytes] must hold at least `bytesPerRow * height` bytes. Returns `null`
-  /// when the pipeline has not been initialized, so callers can tell "no
-  /// result available" apart from "nothing detected".
+  /// when the pipeline has not been initialized, so callers can tell "no result
+  /// available" apart from "nothing detected".
+  ///
+  /// [rotationDegrees] is how far the frame must turn clockwise to appear
+  /// upright. Phone sensors are mounted sideways, so this is rarely zero and
+  /// getting it wrong makes the sampler read the background instead of the
+  /// cube.
   FaceDetection? processFrame(
     Uint8List bytes, {
     required int width,
     required int height,
     int? bytesPerRow,
     int format = 0,
+    int rotationDegrees = 0,
   }) {
     final handle = _pipelineHandle;
     final resultPtr = _resultPtr;
@@ -388,30 +502,89 @@ class RubikFfiBridge {
     try {
       buffer.asTypedList(required).setAll(0, bytes);
       _processCameraFrame(
-          handle, buffer, width, height, stride, format, resultPtr);
-
-      final ref = resultPtr.ref;
-      final corners = <({double x, double y})>[];
-      for (var i = 0; i < 4; i++) {
-        corners.add((x: ref.corners[i].x, y: ref.corners[i].y));
-      }
-      final stickers = <int>[];
-      for (var i = 0; i < 9; i++) {
-        stickers.add(ref.stickers[i]);
-      }
-
-      return FaceDetection(
-        isDetected: ref.isDetected == 1,
-        corners: corners,
-        stickers: stickers,
-        centerColor: ref.centerColor,
-        stepAdvanced: ref.stepAdvanced == 1,
-        currentStepIndex: ref.currentStepIndex,
-        totalSteps: ref.totalSteps,
-      );
+          handle, buffer, width, height, stride, format, rotationDegrees, resultPtr);
+      return _readResult(resultPtr);
     } finally {
       calloc.free(buffer);
     }
+  }
+
+  /// Feeds one YUV_420_888 frame, the layout Android camera streams arrive in.
+  ///
+  /// Going straight from the camera's native format avoids converting every
+  /// pixel in Dart, which for a 720p stream at 10 fps is tens of megabytes of
+  /// per-pixel work every second.
+  ///
+  /// Chroma planes carry their own strides: CameraX pads rows and may
+  /// interleave U and V, so the three planes cannot be assumed to be tight
+  /// halves of one buffer.
+  FaceDetection? processFrameYuv({
+    required Uint8List yPlane,
+    required int yStride,
+    required int yPixelStride,
+    required Uint8List uPlane,
+    required int uStride,
+    required int uPixelStride,
+    required Uint8List vPlane,
+    required int vStride,
+    required int vPixelStride,
+    required int width,
+    required int height,
+    int rotationDegrees = 0,
+  }) {
+    final handle = _pipelineHandle;
+    final resultPtr = _resultPtr;
+    if (handle == null || resultPtr == null) return null;
+
+    final yPtr = calloc<ffi.Uint8>(yPlane.length);
+    final uPtr = calloc<ffi.Uint8>(uPlane.length);
+    final vPtr = calloc<ffi.Uint8>(vPlane.length);
+    try {
+      yPtr.asTypedList(yPlane.length).setAll(0, yPlane);
+      uPtr.asTypedList(uPlane.length).setAll(0, uPlane);
+      vPtr.asTypedList(vPlane.length).setAll(0, vPlane);
+
+      _processCameraFrameYuv(
+        handle,
+        yPtr, yStride, yPixelStride,
+        uPtr, uStride, uPixelStride,
+        vPtr, vStride, vPixelStride,
+        width, height, rotationDegrees, resultPtr,
+      );
+      return _readResult(resultPtr);
+    } finally {
+      calloc.free(yPtr);
+      calloc.free(uPtr);
+      calloc.free(vPtr);
+    }
+  }
+
+  FaceDetection _readResult(ffi.Pointer<NativeDetectionResult> resultPtr) {
+    final ref = resultPtr.ref;
+
+    final corners = <({double x, double y})>[];
+    for (var i = 0; i < 4; i++) {
+      corners.add((x: ref.corners[i].x, y: ref.corners[i].y));
+    }
+    final stickers = <int>[];
+    for (var i = 0; i < 9; i++) {
+      stickers.add(ref.stickers[i]);
+    }
+
+    return FaceDetection(
+      isDetected: ref.isDetected == 1,
+      corners: corners,
+      stickers: stickers,
+      centerColor: ref.centerColor,
+      stepAdvanced: ref.stepAdvanced == 1,
+      currentStepIndex: ref.currentStepIndex,
+      totalSteps: ref.totalSteps,
+      faceFrameCount: ref.faceFrameCount,
+      windowSize: ref.windowSize,
+      ambiguousCells: ref.ambiguousCells,
+      assemblyState: ref.assemblyState,
+      assemblyScore: ref.assemblyScore,
+    );
   }
 
   void setValidationSolution(String initial54, String moves) {
