@@ -85,10 +85,17 @@ set "TUNF=%TUNF:\=/%"
 set "GIT_SSH_COMMAND=ssh -F "%CFG%""
 set "TUNNEL_PROXY=%PROXY%"
 
+rem Careful with `echo` below: `>` and `<` are redirection operators even inside
+rem an echo, so an arrow like "a -> b" gets parsed as a redirect into a file
+rem named "b". On NTFS the colon in "ssh.github.com:443" is the alternate-data-
+rem stream separator, so that particular typo created a 0-byte file called
+rem `ssh.github.com` in the working directory with the echoed text hidden in its
+rem `:443` stream. `rem` lines are immune (cmd takes the rest of the line
+rem literally), which is why the arrows in the header comment are harmless.
 echo [push] python      : %PY%
 echo [push] proxy       : %PROXY%
 echo [push] ssh config  : %CFG%
-echo [push] route       : github.com -> ssh.github.com:443 via CONNECT
+echo [push] route       : github.com forwards to ssh.github.com:443 via CONNECT
 echo.
 
 rem ---- 4. push ----------------------------------------------------------------
