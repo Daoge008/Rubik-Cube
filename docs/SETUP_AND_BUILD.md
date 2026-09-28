@@ -62,3 +62,36 @@ APK 里已存在旧 `librubik_core.so` 时，「构建成功」并不能说明�
   migrator 自动加的，AGP 10 会移除。
 - WorkBuddy 沙箱内 `flutter` 命令一律报 `CreateFile failed 231`（Dart 建管道被拦），
   且输出经 `| Tee-Object` 也会触发。绕过方式见 skill。
+
+## 在代理环境下推送（`tools/git-proxy/`）
+
+本机代理是 fake-IP 模式（`github.com` 解析到 `198.18.0.0/15`），代理对
+`github.com:22` 的 CONNECT 会回 `200 Connection Established` 但**不返回 SSH banner**
+（上游被丢），所以 `git push` 直连必然失败，报 `Connection closed by 198.18.0.160 port 22`。
+
+> ⚠️ 那个 200 是**假通** —— 它只说明代理接受了请求，不代表对端可达。
+> 容易顺着这个错误信息去怀疑密钥，实际问题在网络层。
+
+HTTPS 也走不通 push：`git ls-remote` 能成功只是因为**仓库公开、读免认证**，
+而 push 必须要凭据，`git credential fill` 在沙箱里直接报
+`could not read Username ... terminal prompts disabled`。
+**不要把「ls-remote 成功」当成「网络和认证都没问题」。**
+
+可行的路径是 GitHub 官方的 SSH-over-HTTPS 端点 **`ssh.github.com:443`**
+（同一把主机密钥、同一账号），经 HTTP CONNECT 隧道：
+
+```bash
+# 直接跑（脚本自己 cd 到仓库根，可从任意目录调用）
+tools\git-proxy\push.bat                  # 等价于 git push origin main
+tools\git-proxy\push.bat origin develop   # 目标可换
+tools\git-proxy\push.bat --tags           # 参数原样透传给 git push
+```
+
+- `push.bat` 负责：找 Python 3（会真的执行每个候选，跳过 Python 2 和 Store 占位器）、
+  解析代理（`TUNNEL_PROXY` → `https_proxy` → `http_proxy`）、在 `%TEMP%` 生成 ssh 配置、
+  设好 `GIT_SSH_COMMAND` 后推送。
+- `connect_tunnel.py` 是 OpenSSH 的 `ProxyCommand`。**ssh_config 不支持展开环境变量**，
+  所以配置是每次运行现生成的，而不是入库一份写死绝对路径的 —— 后者换台机器就失效。
+- 可覆盖 `PYTHON` / `TUNNEL_PROXY` 两个环境变量。
+- `Failed to add the host to the list of known hosts` 警告无害：沙箱对
+  `~/.ssh/known_hosts` 只读，`accept-new` 写不进去而已。
