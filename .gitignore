@@ -22,6 +22,12 @@
 **/.cxx/
 *.so
 !android/app/src/main/cpp/CMakeLists.txt
+android/build/
+
+# ---- 原生测试工具的编译产物（源码在 tools/，产物不入库）----
+tools/**/build/
+*.obj
+*.pdb
 
 # 签名材料，绝不入库
 key.properties

@@ -8,10 +8,11 @@ android {
     namespace = "com.daoge.rubik_cube"
     compileSdk = flutter.compileSdkVersion
 
-    // Flutter 3.47.5 expects NDK 28.2.13676358 by default, but only 27.2.12479018 is
-    // installed on this machine. The native engine here is plain C++17 with no
-    // NDK-version-specific APIs, so pinning the installed NDK is safe.
-    ndkVersion = "27.2.12479018"
+    // NDK 28.2.13676358: required by plugins (audioplayers_android, camera_android,
+    // device_info_plus, flutter_plugin_android_lifecycle, jni, vibration).
+    // The native engine here is plain C++17 with no NDK-version-specific APIs,
+    // so using the highest version is safe (NDK versions are backward compatible).
+    ndkVersion = "28.2.13676358"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
