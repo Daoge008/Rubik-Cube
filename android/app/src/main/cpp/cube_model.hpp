@@ -3,20 +3,25 @@
 #include <vector>
 #include <array>
 #include <algorithm>
-#include <numeric>
 #include <cstdint>
 
 enum Color { U = 0, R = 1, F = 2, D = 3, L = 4, B = 5 };
 enum Corner { URF = 0, UFL = 1, ULB = 2, UBR = 3, DFR = 4, DLF = 5, DBL = 6, DRB = 7 };
 enum Edge { UR = 0, UF = 1, UL = 2, UB = 3, DR = 4, DF = 5, DL = 6, DB = 7, FR = 8, FL = 9, BL = 10, BR = 11 };
 
-struct CornerCubie {
-    Corner cp[8];
-    int8_t co[8];
-};
+/// Corner/edge level views of a cube. Kept for the pipeline facing API.
+struct CornerCubie { int8_t cp[8]; int8_t co[8]; };
+struct EdgeCubie { int8_t ep[12]; int8_t eo[12]; };
 
-struct EdgeCubie {
-    Edge ep[12];
+/// Full cubie level state.
+///
+/// `cp[i]` is the corner piece sitting at position `i`, `co[i]` its twist
+/// (0..2). `ep[i]` / `eo[i]` are the edge equivalents. Move application lives
+/// in `move_engine.hpp`; this header only owns the facelet <-> cubie mapping.
+struct CubieState {
+    int8_t cp[8];
+    int8_t co[8];
+    int8_t ep[12];
     int8_t eo[12];
 };
 
@@ -33,31 +38,159 @@ public:
         { 23, 12 }, { 21, 41 }, { 48, 39 }, { 50, 14 }
     };
 
-    static bool validate(const std::string& facelets, std::string& error_msg) {
-        if (facelets.length() != 54) {
-            error_msg = "Invalid length: facelet string must be exactly 54 characters.";
+    /// Face colors of every corner piece, ordered exactly like
+    /// `cornerFacelet`: index 0 is the U/D facing sticker.
+    static constexpr int cornerColors[8][3] = {
+        { U, R, F }, { U, F, L }, { U, L, B }, { U, B, R },
+        { D, F, R }, { D, L, F }, { D, B, L }, { D, R, B }
+    };
+
+    /// Face colors of every edge piece, ordered like `edgeFacelet`:
+    /// index 0 is the U/D sticker for U/D edges, the F/B sticker otherwise.
+    static constexpr int edgeColors[12][2] = {
+        { U, R }, { U, F }, { U, L }, { U, B },
+        { D, R }, { D, F }, { D, L }, { D, B },
+        { F, R }, { F, L }, { B, L }, { B, R }
+    };
+
+    /// Solved facelet string in the canonical `U R F D L B` order.
+    static const std::string& solvedFacelets() {
+        static const std::string s = "UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB";
+        return s;
+    }
+
+    static CubieState solvedState() {
+        CubieState s{};
+        for (int i = 0; i < 8; ++i) { s.cp[i] = (int8_t)i; s.co[i] = 0; }
+        for (int i = 0; i < 12; ++i) { s.ep[i] = (int8_t)i; s.eo[i] = 0; }
+        return s;
+    }
+
+    static bool isSolved(const CubieState& s) {
+        for (int i = 0; i < 8; ++i) {
+            if (s.cp[i] != i || s.co[i] != 0) return false;
+        }
+        for (int i = 0; i < 12; ++i) {
+            if (s.ep[i] != i || s.eo[i] != 0) return false;
+        }
+        return true;
+    }
+
+    /// Decodes a 54 character facelet string into cubie form.
+    ///
+    /// Returns false (with `err` filled in) when a corner/edge combination
+    /// does not correspond to a real piece or when a piece shows up twice.
+    static bool faceletsToCubie(const std::string& f, CubieState& out, std::string& err) {
+        if (f.size() != 54) {
+            err = "Invalid length: facelet string must be exactly 54 characters.";
             return false;
         }
 
         int counts[6] = {0};
-        for (char c : facelets) {
+        for (char c : f) {
             int idx = charToColorIndex(c);
             if (idx < 0) {
-                error_msg = std::string("Unknown color facelet detected: ") + c;
+                err = std::string("Unknown color facelet detected: ") + c;
                 return false;
             }
             counts[idx]++;
         }
         for (int i = 0; i < 6; ++i) {
             if (counts[i] != 9) {
-                error_msg = "Each of the 6 colors must appear exactly 9 times.";
+                err = "Each of the 6 colors must appear exactly 9 times.";
                 return false;
             }
         }
 
-        CornerCubie cc;
-        EdgeCubie ec;
-        if (!toCubie(facelets, cc, ec, error_msg)) {
+        bool cornerSeen[8] = {false};
+        bool edgeSeen[12] = {false};
+
+        for (int i = 0; i < 8; ++i) {
+            const int fac[3] = {
+                charToColorIndex(f[cornerFacelet[i][0]]),
+                charToColorIndex(f[cornerFacelet[i][1]]),
+                charToColorIndex(f[cornerFacelet[i][2]])
+            };
+            // `co` is the index of the facelet carrying the U/D sticker, which
+            // is also the index of the piece's first color in `cornerColors`.
+            int ori = 0;
+            if (fac[1] == U || fac[1] == D) ori = 1;
+            else if (fac[2] == U || fac[2] == D) ori = 2;
+            out.co[i] = (int8_t)ori;
+
+            int piece = matchCorner(fac[0], fac[1], fac[2]);
+            if (piece < 0) {
+                err = "Invalid corner piece arrangement detected.";
+                return false;
+            }
+            if (cornerSeen[piece]) {
+                err = "Duplicate corner piece detected: a corner appears twice.";
+                return false;
+            }
+            cornerSeen[piece] = true;
+            out.cp[i] = (int8_t)piece;
+        }
+
+        for (int i = 0; i < 12; ++i) {
+            const int c1 = charToColorIndex(f[edgeFacelet[i][0]]);
+            const int c2 = charToColorIndex(f[edgeFacelet[i][1]]);
+            int ori = 0;
+            if (c1 == U || c1 == D) ori = 0;
+            else if (c2 == U || c2 == D) ori = 1;
+            else if (c1 == F || c1 == B) ori = 0;
+            else ori = 1;
+            out.eo[i] = (int8_t)ori;
+
+            int piece = matchEdge(c1, c2);
+            if (piece < 0) {
+                err = "Invalid edge piece arrangement detected.";
+                return false;
+            }
+            if (edgeSeen[piece]) {
+                err = "Duplicate edge piece detected: an edge appears twice.";
+                return false;
+            }
+            edgeSeen[piece] = true;
+            out.ep[i] = (int8_t)piece;
+        }
+
+        return true;
+    }
+
+    /// Inverse of `faceletsToCubie`, in the canonical `U R F D L B` order.
+    static std::string cubieToFacelets(const CubieState& s) {
+        // The six centers always show their own face color, so every block
+        // starts out solved and only the corners/edges are overwritten.
+        std::string f(54, 'U');
+        for (int face = 0; face < 6; ++face) {
+            for (int i = 0; i < 9; ++i) f[face * 9 + i] = colorChar(face);
+        }
+
+        for (int c = 0; c < 8; ++c) {
+            const int piece = s.cp[c];
+            const int ori = s.co[c] % 3;
+            for (int j = 0; j < 3; ++j) {
+                // Color j of the piece sits on the facelet `ori` steps further
+                // round the corner, because `co` indexes the facelet holding
+                // color 0.
+                const int slot = (ori + j) % 3;
+                f[cornerFacelet[c][slot]] = colorChar(cornerColors[piece][j]);
+            }
+        }
+
+        for (int e = 0; e < 12; ++e) {
+            const int piece = s.ep[e];
+            const int ori = s.eo[e] % 2;
+            f[edgeFacelet[e][0]] = colorChar(edgeColors[piece][ori]);
+            f[edgeFacelet[e][1]] = colorChar(edgeColors[piece][1 - ori]);
+        }
+
+        return f;
+    }
+
+    static bool validate(const std::string& facelets, std::string& error_msg) {
+        CubieState cc;
+        if (!faceletsToCubie(facelets, cc, error_msg)) {
             return false;
         }
 
@@ -69,14 +202,14 @@ public:
         }
 
         int flip_sum = 0;
-        for (int i = 0; i < 12; ++i) flip_sum += ec.eo[i];
+        for (int i = 0; i < 12; ++i) flip_sum += cc.eo[i];
         if (flip_sum % 2 != 0) {
             error_msg = "Edge flip parity error: sum(flip) % 2 != 0 (An edge is flipped).";
             return false;
         }
 
         int corner_parity = getPermutationParity(cc.cp, 8);
-        int edge_parity = getPermutationParity(ec.ep, 12);
+        int edge_parity = getPermutationParity(cc.ep, 12);
         if (corner_parity != edge_parity) {
             error_msg = "Permutation parity mismatch: corner parity must equal edge parity.";
             return false;
@@ -97,6 +230,18 @@ public:
         }
     }
 
+    static char colorChar(int color) {
+        switch (color) {
+            case U: return 'U';
+            case R: return 'R';
+            case F: return 'F';
+            case D: return 'D';
+            case L: return 'L';
+            case B: return 'B';
+            default: return '?';
+        }
+    }
+
 private:
     template <typename T>
     static int getPermutationParity(const T* arr, int n) {
@@ -109,69 +254,31 @@ private:
         return inversions % 2;
     }
 
-    static bool toCubie(const std::string& f, CornerCubie& cc, EdgeCubie& ec, std::string& err) {
-        for (int i = 0; i < 8; ++i) {
-            int fac[3] = { charToColorIndex(f[cornerFacelet[i][0]]),
-                           charToColorIndex(f[cornerFacelet[i][1]]),
-                           charToColorIndex(f[cornerFacelet[i][2]]) };
-            int ori = 0;
-            if (fac[1] == U || fac[1] == D) ori = 1;
-            else if (fac[2] == U || fac[2] == D) ori = 2;
-            cc.co[i] = ori;
-            int col1 = fac[(3 - ori) % 3], col2 = fac[(4 - ori) % 3], col3 = fac[(5 - ori) % 3];
-            cc.cp[i] = matchCorner(col1, col2, col3);
-            if (cc.cp[i] == -1) {
-                err = "Invalid corner piece arrangement detected.";
-                return false;
-            }
+    /// Returns the corner piece built from its three colors, or -1 when the
+    /// color triple does not correspond to any real corner.
+    ///
+    /// Matching is order independent: the three stickers of an illegal corner
+    /// are still only ever a subset comparison, but real cubes can only ever
+    /// show the colors of an existing piece, so the set is enough to identify
+    /// it. Returning `int` (instead of `Corner`) is what makes the -1 test
+    /// meaningful - the old `(Corner)-1 == -1` comparison was always false.
+    static int matchCorner(int c1, int c2, int c3) {
+        int sorted[3] = {c1, c2, c3};
+        std::sort(sorted, sorted + 3);
+        for (int p = 0; p < 8; ++p) {
+            int cols[3] = {cornerColors[p][0], cornerColors[p][1], cornerColors[p][2]};
+            std::sort(cols, cols + 3);
+            if (sorted[0] == cols[0] && sorted[1] == cols[1] && sorted[2] == cols[2]) return p;
         }
-
-        for (int i = 0; i < 12; ++i) {
-            int c1 = charToColorIndex(f[edgeFacelet[i][0]]);
-            int c2 = charToColorIndex(f[edgeFacelet[i][1]]);
-            int ori = 0;
-            if (c1 == U || c1 == D) ori = 0;
-            else if (c2 == U || c2 == D) ori = 1;
-            else if (c1 == F || c1 == B) ori = 0;
-            else ori = 1;
-            ec.eo[i] = ori;
-            ec.ep[i] = matchEdge(c1, c2);
-            if (ec.ep[i] == -1) {
-                err = "Invalid edge piece arrangement detected.";
-                return false;
-            }
-        }
-        return true;
+        return -1;
     }
 
-    static Corner matchCorner(int c1, int c2, int c3) {
-        std::vector<int> cols = {c1, c2, c3};
-        std::sort(cols.begin(), cols.end());
-        if (cols == std::vector<int>{0, 1, 2}) return URF;
-        if (cols == std::vector<int>{0, 2, 4}) return UFL;
-        if (cols == std::vector<int>{0, 4, 5}) return ULB;
-        if (cols == std::vector<int>{0, 1, 5}) return UBR;
-        if (cols == std::vector<int>{1, 2, 3}) return DFR;
-        if (cols == std::vector<int>{2, 3, 4}) return DLF;
-        if (cols == std::vector<int>{3, 4, 5}) return DBL;
-        if (cols == std::vector<int>{1, 3, 5}) return DRB;
-        return (Corner)-1;
-    }
-
-    static Edge matchEdge(int c1, int c2) {
-        int u = std::min(c1, c2), v = std::max(c1, c2);
-        if (u == 0 && v == 1) return UR;
-        if (u == 0 && v == 2) return UF;
-        if (u == 0 && v == 4) return UL;
-        if (u == 0 && v == 5) return UB;
-        if (u == 1 && v == 3) return DR;
-        if (u == 2 && v == 3) return DF;
-        if (u == 3 && v == 4) return DL;
-        if (u == 3 && v == 5) return DB;
-        if (u == 1 && v == 2) return FR;
-        if (u == 2 && v == 4) return FL;
-        if (u == 4 && v == 5) return BL;
-        if (u == 1 && v == 5) return BR;
-        return (Edge)-1;
+    static int matchEdge(int c1, int c2) {
+        for (int p = 0; p < 12; ++p) {
+            const int* cols = edgeColors[p];
+            if ((c1 == cols[0] && c2 == cols[1]) ||
+                (c1 == cols[1] && c2 == cols[0])) return p;
+        }
+        return -1;
     }
 };
