@@ -72,5 +72,22 @@ void main() {
         }
       }
     });
+
+    test('Middle slice moves (M, E, S) alter state and 4 turns return to solved', () {
+      for (final slice in ['M', 'E', 'S']) {
+        final solved = CubeState.solved();
+        final moved1 = solved.applyMove(slice);
+        expect(moved1.isSolved, isFalse, reason: 'Slice $slice once should alter state');
+
+        final moved4 = solved.applyMoves('$slice $slice $slice $slice');
+        expect(moved4.toSingmaster(), solved.toSingmaster(),
+            reason: '$slice * 4 should equal identity');
+
+        final movedPrime = solved.applyMove("$slice'");
+        final moved3 = solved.applyMoves('$slice $slice $slice');
+        expect(movedPrime.toSingmaster(), moved3.toSingmaster(),
+            reason: "$slice' should equal $slice * 3");
+      }
+    });
   });
 }

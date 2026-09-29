@@ -119,14 +119,23 @@ class _InteractiveCube3DState extends State<InteractiveCube3D>
     CubeSoundService.instance.playClick();
   }
 
-  void _onPanStart(DragStartDetails details) {
+  void _onScaleStart(ScaleStartDetails details) {
     if (!widget.interactive) return;
-    _panStartPos = details.localPosition;
+
+    // Dual-finger drag: rotate whole cube (camera)
+    if (details.pointerCount >= 2) {
+      _isCameraRotating = true;
+      _panHit = null;
+      _isTurnTriggered = false;
+      return;
+    }
+
+    _panStartPos = details.localFocalPoint;
     _isTurnTriggered = false;
     _isCameraRotating = false;
 
     if (widget.allowFaceTurns && !_turnController.isAnimating) {
-      _panHit = _hitTest(details.localPosition);
+      _panHit = _hitTest(details.localFocalPoint);
     } else {
       _panHit = null;
     }
@@ -136,35 +145,41 @@ class _InteractiveCube3DState extends State<InteractiveCube3D>
     }
   }
 
-  void _onPanUpdate(DragUpdateDetails details) {
-    if (!widget.interactive || _panStartPos == null) return;
+  void _onScaleUpdate(ScaleUpdateDetails details) {
+    if (!widget.interactive) return;
 
-    final delta = details.localPosition - _panStartPos!;
-
-    // If pan started outside the cube → always camera rotate
-    if (_isCameraRotating || _panHit == null) {
+    // Dual fingers: ALWAYS rotate entire cube (camera)
+    if (details.pointerCount >= 2) {
       setState(() {
-        _yaw += details.delta.dx * 0.012;
-        _pitch = (_pitch + details.delta.dy * 0.012).clamp(-1.35, 1.35);
+        _yaw += details.focalPointDelta.dx * 0.012;
+        _pitch = (_pitch + details.focalPointDelta.dy * 0.012).clamp(-1.35, 1.35);
       });
       return;
     }
 
-    // Pan started ON a cube cell → try to resolve a face turn
-    if (!_isTurnTriggered && widget.allowFaceTurns) {
-      if (delta.distance > 18) {
+    // Single finger in blank space / edge area: camera rotate
+    if (_isCameraRotating || _panHit == null) {
+      setState(() {
+        _yaw += details.focalPointDelta.dx * 0.012;
+        _pitch = (_pitch + details.focalPointDelta.dy * 0.012).clamp(-1.35, 1.35);
+      });
+      return;
+    }
+
+    // Single finger on cube: trigger face/slice turn
+    if (!_isTurnTriggered && widget.allowFaceTurns && _panStartPos != null) {
+      final delta = details.localFocalPoint - _panStartPos!;
+      if (delta.distance > 16) {
         final move = _resolveMoveFromSwipe(_panHit!, delta);
         if (move != null) {
           _isTurnTriggered = true;
           animateMove(move);
         }
-        // If still null (ambiguous direction on an edge cell), keep waiting —
-        // do NOT fall back to camera rotation while the finger is on the cube.
       }
     }
   }
 
-  void _onPanEnd(DragEndDetails details) {
+  void _onScaleEnd(ScaleEndDetails details) {
     if (!widget.interactive) return;
 
     // Check if it was a quick tap
@@ -371,9 +386,9 @@ class _InteractiveCube3DState extends State<InteractiveCube3D>
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onPanStart: _onPanStart,
-      onPanUpdate: _onPanUpdate,
-      onPanEnd: _onPanEnd,
+      onScaleStart: _onScaleStart,
+      onScaleUpdate: _onScaleUpdate,
+      onScaleEnd: _onScaleEnd,
       onDoubleTap: _resetView,
       child: AnimatedBuilder(
         animation: _turnAnimation,
@@ -553,51 +568,41 @@ _ProjectedQuad? _buildStickerQuad(
     _Vec3(cx, cy, cz) + uDir * (-hw) + vDir * hw,
   ];
 
-  _Vec3 applyLayerTurn(_Vec3 p) {
-    if (animFace == null || animAngle == 0) return p;
-    switch (animFace) {
-      case 'U':
-        if (p.y > 0.5) return _rotateY(p, animAngle);
-        break;
-      case 'D':
-        if (p.y < -0.5) return _rotateY(p, -animAngle);
-        break;
-      case 'R':
-        if (p.x > 0.5) return _rotateX(p, -animAngle);
-        break;
-      case 'L':
-        if (p.x < -0.5) return _rotateX(p, animAngle);
-        break;
-      case 'F':
-        if (p.z > 0.5) return _rotateZ(p, -animAngle);
-        break;
-      case 'B':
-        if (p.z < -0.5) return _rotateZ(p, animAngle);
-        break;
-      // Middle-slice animation
-      case 'M':
-        if (p.x.abs() <= 0.5) return _rotateX(p, animAngle); // same dir as L
-        break;
-      case 'E':
-        if (p.y.abs() <= 0.5) return _rotateY(p, -animAngle); // same dir as D
-        break;
-      case 'S':
-        if (p.z.abs() <= 0.5) return _rotateZ(p, -animAngle); // same dir as F
-        break;
+  bool isCellInAnimLayer(double cx, double cy, double cz, String face) {
+    switch (face) {
+      case 'U': return cy > 0.5;
+      case 'D': return cy < -0.5;
+      case 'R': return cx > 0.5;
+      case 'L': return cx < -0.5;
+      case 'F': return cz > 0.5;
+      case 'B': return cz < -0.5;
+      case 'M': return cx.abs() <= 0.5;
+      case 'E': return cy.abs() <= 0.5;
+      case 'S': return cz.abs() <= 0.5;
+      default: return false;
     }
-    return p;
   }
 
-  _Vec3 transform(_Vec3 p) {
-    var v = applyLayerTurn(p);
-    v = _rotateY(v, yaw);
-    v = _rotateX(v, pitch);
-    return v;
+  _Vec3 rotateByFace(_Vec3 v, String face, double angle) {
+    switch (face) {
+      case 'U': return _rotateY(v, angle);
+      case 'D': return _rotateY(v, -angle);
+      case 'R': return _rotateX(v, -angle);
+      case 'L': return _rotateX(v, angle);
+      case 'F': return _rotateZ(v, -angle);
+      case 'B': return _rotateZ(v, angle);
+      case 'M': return _rotateX(v, angle);
+      case 'E': return _rotateY(v, -angle);
+      case 'S': return _rotateZ(v, -angle);
+      default: return v;
+    }
   }
 
-  // Camera is at +Z; normals pointing toward camera have z > 0.
-  // Cull faces where the normal points AWAY from camera (z <= 0).
-  final transformedNorm = (transform(normal) - transform(const _Vec3(0, 0, 0))).normalized();
+  final bool cellRotates = animFace != null && animAngle != 0 && isCellInAnimLayer(cx, cy, cz, animFace);
+
+  final rotNormal = cellRotates ? rotateByFace(normal, animFace, animAngle) : normal;
+  final transformedNorm = _rotateX(_rotateY(rotNormal, yaw), pitch).normalized();
+
   if (transformedNorm.z <= 0.05) {
     return null;
   }
@@ -611,7 +616,8 @@ _ProjectedQuad? _buildStickerQuad(
   final pts = <Offset>[];
   double totalDepth = 0;
   for (final c in localCorners) {
-    final v = transform(c);
+    final rotC = cellRotates ? rotateByFace(c, animFace, animAngle) : c;
+    final v = _rotateX(_rotateY(rotC, yaw), pitch);
     totalDepth += v.z;
     final k = camDist / (camDist - v.z);
     final px = center.dx + v.x * k * scale;
@@ -619,9 +625,14 @@ _ProjectedQuad? _buildStickerQuad(
     pts.add(Offset(px, py));
   }
 
-  final centerTrans = transform(_Vec3(cx, cy, cz));
-  final uTrans = transform(_Vec3(cx, cy, cz) + uDir * 0.5);
-  final vTrans = transform(_Vec3(cx, cy, cz) + vDir * 0.5);
+  final cellCenterVec = _Vec3(cx, cy, cz);
+  final rotCenter = cellRotates ? rotateByFace(cellCenterVec, animFace, animAngle) : cellCenterVec;
+  final rotU = cellRotates ? rotateByFace(cellCenterVec + uDir * 0.5, animFace, animAngle) : (cellCenterVec + uDir * 0.5);
+  final rotV = cellRotates ? rotateByFace(cellCenterVec + vDir * 0.5, animFace, animAngle) : (cellCenterVec + vDir * 0.5);
+
+  final centerTrans = _rotateX(_rotateY(rotCenter, yaw), pitch);
+  final uTrans = _rotateX(_rotateY(rotU, yaw), pitch);
+  final vTrans = _rotateX(_rotateY(rotV, yaw), pitch);
 
   final kC = camDist / (camDist - centerTrans.z);
   final cPx = center.dx + centerTrans.x * kC * scale;
@@ -702,51 +713,13 @@ class _Cube3DPainter extends CustomPainter {
       hlFace = highlightMove![0].toUpperCase();
     }
 
-    // ── Pass 1: draw each face's solid background polygon ────────────────────
-    // Group corner cells by face. For face f, we need the 4 outer corners:
-    //   cell(0,0) pts[0]  ←  top-left  of the face
-    //   cell(0,2) pts[1]  ←  top-right
-    //   cell(2,2) pts[2]  ←  bottom-right
-    //   cell(2,0) pts[3]  ←  bottom-left
-    final faceCorners = <int, List<Offset>>{};  // faceIndex → 4 outer corners
-    final faceLighting = <int, double>{};
-
-    for (final q in quads) {
-      if (!faceCorners.containsKey(q.faceIndex)) {
-        faceCorners[q.faceIndex] = [Offset.zero, Offset.zero, Offset.zero, Offset.zero];
-        faceLighting[q.faceIndex] = q.lighting;
-      }
-      final corners = faceCorners[q.faceIndex]!;
-      if (q.row == 0 && q.col == 0) corners[0] = q.points[0];
-      if (q.row == 0 && q.col == 2) corners[1] = q.points[1];
-      if (q.row == 2 && q.col == 2) corners[2] = q.points[2];
-      if (q.row == 2 && q.col == 0) corners[3] = q.points[3];
-    }
-
-    // Determine face draw order (use average depth of corner cells of each face)
-    final faceDepths = <int, double>{};
-    for (final q in quads) {
-      faceDepths[q.faceIndex] = (faceDepths[q.faceIndex] ?? 0) + q.depth;
-    }
-    final sortedFaces = faceCorners.keys.toList()
-      ..sort((a, b) => (faceDepths[a] ?? 0).compareTo(faceDepths[b] ?? 0));
-
-    // Pure black fill for the entire face area — this is the groove/edge colour
-    final bgPaint = Paint()..color = const Color(0xFF0A0A0A);
-    for (final f in sortedFaces) {
-      final pts = faceCorners[f]!;
-      if (pts.any((p) => p == Offset.zero)) continue;
-      final facePath = _roundedQuadPath(pts, 0); // sharp corners at face boundary
-      canvas.drawPath(facePath, bgPaint);
-    }
-
-    // ── Pass 2: draw individual cubie bodies + stickers ──────────────────────
     for (final q in quads) {
       _drawCubieCell(canvas, q, hlFace);
     }
   }
 
   /// Renders a single cubie face:
+  ///   • dark plastic base tile (defines seams/grooves)
   ///   • dark rounded body (per-face lighting + radial pillow gradient)
   ///   • inset oval / rounded sticker
   ///   • subtle gloss sheen on the sticker
@@ -761,7 +734,11 @@ class _Cube3DPainter extends CustomPainter {
     }
     final cellPx = totalEdge / 4;
 
-    // ── 1. Groove gap between cubies (narrow so cells look tight/realistic) ──
+    // ── 1. Black plastic base tile (defines the dark seams/grooves around each cubie) ──
+    final basePath = _roundedQuadPath(pts, cellPx * 0.10);
+    canvas.drawPath(basePath, Paint()..color = const Color(0xFF0A0A0A));
+
+    // ── 2. Groove gap between cubies (narrow so cells look tight/realistic) ──
     final bodyPts = _insetQuad(pts, cellPx * 0.045);
     final bodyPath = _roundedQuadPath(bodyPts, cellPx * 0.18);
 
@@ -819,10 +796,10 @@ class _Cube3DPainter extends CustomPainter {
     canvas.drawPath(
       stickerPath,
       Paint()
-        ..shader = RadialGradient(
-          center: const Alignment(-0.15, -0.50),
+        ..shader = const RadialGradient(
+          center: Alignment(-0.15, -0.50),
           radius: 1.30,
-          colors: const [Color(0x55FFFFFF), Color(0x00FFFFFF)],
+          colors: [Color(0x55FFFFFF), Color(0x00FFFFFF)],
         ).createShader(
           Rect.fromCircle(center: Offset(scx, scy), radius: cellPx * 0.25),
         ),

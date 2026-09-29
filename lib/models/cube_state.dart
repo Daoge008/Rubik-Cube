@@ -215,7 +215,7 @@ class CubeState {
           list,
           [1, 4, 7],     // U middle col (top to bot)
           [18 + 1, 18 + 4, 18 + 7], // F middle col
-          [27 + 7, 27 + 4, 27 + 1], // D middle col (reversed for B backtrack)
+          [27 + 1, 27 + 4, 27 + 7], // D middle col (top to bot, parallel to L)
           [45 + 7, 45 + 4, 45 + 1], // B middle col (reversed)
         );
         break;
