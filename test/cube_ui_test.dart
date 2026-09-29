@@ -395,6 +395,41 @@ void main() {
       await tester.tap(find.text('完成复原'));
       expect(nextCalled, isTrue);
     });
+
+    testWidgets('StepGuideCard does not overflow on narrow screens with long stage names', (tester) async {
+      tester.view.physicalSize = const Size(320, 600);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+
+      final step = SolutionStep(
+        stepIndex: 10,
+        moveNotation: "U",
+        stageName: '最少步最优解',
+        visualHint: '执行标准单步转动: U',
+        explanation: '根据两阶段算法优化的核心复原步骤',
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: StepGuideCard(
+              step: step,
+              totalSteps: 21,
+              isAnimating: true,
+              onNext: () {},
+              onPrev: () {},
+              onReplay: () {},
+              onToggleAutoPlay: () {},
+              isAutoAdvance: true,
+              onToggleAutoAdvance: (_) {},
+            ),
+          ),
+        ),
+      );
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('转动中...'), findsOneWidget);
+    });
   });
 }
 

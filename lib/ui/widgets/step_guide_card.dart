@@ -56,94 +56,73 @@ class StepGuideCard extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Header: Stage badge + help button + status / step counter
+          // Header: Stage badge + status / step counter
           Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: isLastStep
-                      ? const Color(0xFF00E676).withOpacity(0.2)
-                      : const Color(0xFF3F51B5).withOpacity(0.4),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  isLastStep ? '终步：完成复原' : step.stageName,
-                  style: TextStyle(
-                    color: isLastStep ? const Color(0xFF00E676) : const Color(0xFF8C9EFF),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              // Help button
-              InkWell(
-                onTap: () {
-                  if (onHelp != null) {
-                    onHelp!();
-                  } else {
-                    BeginnerGuideSheet.show(context);
-                  }
-                },
-                borderRadius: BorderRadius.circular(12),
+              Flexible(
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.08),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.white24, width: 0.8),
+                    color: isLastStep
+                        ? const Color(0xFF00E676).withOpacity(0.2)
+                        : const Color(0xFF3F51B5).withOpacity(0.4),
+                    borderRadius: BorderRadius.circular(8),
                   ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.help_outline_rounded, color: Color(0xFF40C4FF), size: 14),
-                      SizedBox(width: 4),
-                      Text(
-                        '新手帮助',
-                        style: TextStyle(color: Color(0xFF40C4FF), fontSize: 11, fontWeight: FontWeight.bold),
-                      ),
-                    ],
+                  child: Text(
+                    isLastStep ? '终步：完成复原' : step.stageName,
+                    style: TextStyle(
+                      color: isLastStep ? const Color(0xFF00E676) : const Color(0xFF8C9EFF),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
               ),
-              const Spacer(),
-              if (isAutoPlaying)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF00E676).withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: const Color(0xFF00E676), width: 0.8),
-                  ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      SizedBox(
-                        width: 8,
-                        height: 8,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 1.5,
-                          valueColor: AlwaysStoppedAnimation(Color(0xFF00E676)),
-                        ),
-                      ),
-                      SizedBox(width: 6),
-                      Text(
-                        '演示中',
-                        style: TextStyle(color: Color(0xFF00E676), fontSize: 11, fontWeight: FontWeight.bold),
-                      ),
-                    ],
-                  ),
-                )
-              else if (isAnimating)
-                const Text(
-                  '转动中...',
-                  style: TextStyle(color: Color(0xFFFFD600), fontSize: 12, fontWeight: FontWeight.bold),
-                ),
               const SizedBox(width: 8),
-              Text(
-                '第 ${step.stepIndex} / $totalSteps 步',
-                style: const TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.bold),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (isAutoPlaying)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF00E676).withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: const Color(0xFF00E676), width: 0.8),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          SizedBox(
+                            width: 8,
+                            height: 8,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 1.5,
+                              valueColor: AlwaysStoppedAnimation(Color(0xFF00E676)),
+                            ),
+                          ),
+                          SizedBox(width: 4),
+                          Text(
+                            '演示中',
+                            style: TextStyle(color: Color(0xFF00E676), fontSize: 11, fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
+                    )
+                  else if (isAnimating)
+                    const Text(
+                      '转动中...',
+                      style: TextStyle(color: Color(0xFFFFD600), fontSize: 11, fontWeight: FontWeight.bold),
+                    ),
+                  const SizedBox(width: 6),
+                  Text(
+                    '第 ${step.stepIndex} / $totalSteps 步',
+                    style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold),
+                  ),
+                ],
               ),
             ],
           ),
@@ -163,11 +142,11 @@ class StepGuideCard extends StatelessWidget {
             ),
           ),
 
-          // Beginner Mnemonic / Plain Chinese translation
+          // Beginner Mnemonic / Plain Chinese translation + Beginner Help
           if (mnemonic.isNotEmpty) ...[
             const SizedBox(height: 6),
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(
                 color: Colors.black26,
                 borderRadius: BorderRadius.circular(10),
@@ -176,18 +155,82 @@ class StepGuideCard extends StatelessWidget {
               child: Row(
                 children: [
                   const Icon(Icons.record_voice_over_rounded, color: Color(0xFF8C9EFF), size: 16),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 6),
                   Expanded(
                     child: Text(
                       '口诀：$mnemonic',
                       style: const TextStyle(
                         color: Color(0xFFE0E0E0),
-                        fontSize: 13,
+                        fontSize: 12,
                         fontWeight: FontWeight.w500,
                       ),
                     ),
                   ),
+                  const SizedBox(width: 6),
+                  InkWell(
+                    onTap: () {
+                      if (onHelp != null) {
+                        onHelp!();
+                      } else {
+                        BeginnerGuideSheet.show(context);
+                      }
+                    },
+                    borderRadius: BorderRadius.circular(8),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.white24, width: 0.8),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.help_outline_rounded, color: Color(0xFF40C4FF), size: 13),
+                          SizedBox(width: 3),
+                          Text(
+                            '新手帮助',
+                            style: TextStyle(color: Color(0xFF40C4FF), fontSize: 11, fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                 ],
+              ),
+            ),
+          ] else ...[
+            const SizedBox(height: 6),
+            Align(
+              alignment: Alignment.centerRight,
+              child: InkWell(
+                onTap: () {
+                  if (onHelp != null) {
+                    onHelp!();
+                  } else {
+                    BeginnerGuideSheet.show(context);
+                  }
+                },
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.08),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.white24, width: 0.8),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.help_outline_rounded, color: Color(0xFF40C4FF), size: 13),
+                      SizedBox(width: 4),
+                      Text(
+                        '新手帮助',
+                        style: TextStyle(color: Color(0xFF40C4FF), fontSize: 11, fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ),
           ],
@@ -260,66 +303,80 @@ class StepGuideCard extends StatelessWidget {
           const SizedBox(height: 12),
 
           // Bottom Control Row
-          Row(
-            children: [
-              Switch(
-                value: isAutoAdvance,
-                onChanged: isAutoPlaying ? null : onToggleAutoAdvance,
-                activeColor: const Color(0xFF00E676),
-              ),
-              const Text('自动核对', style: TextStyle(color: Colors.white70, fontSize: 12)),
-              const Spacer(),
-              // Prev step
-              IconButton(
-                icon: const Icon(Icons.arrow_back_ios_rounded, size: 20),
-                color: canPrev ? Colors.white : Colors.white24,
-                tooltip: '上一步',
-                onPressed: canPrev ? onPrev : null,
-              ),
-              // Replay button
-              if (onReplay != null)
-                IconButton(
-                  icon: const Icon(Icons.replay_rounded, size: 22),
-                  color: canReplay ? const Color(0xFF40C4FF) : Colors.white24,
-                  tooltip: '重播本步',
-                  onPressed: canReplay ? onReplay : null,
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Row(
+              children: [
+                Switch(
+                  value: isAutoAdvance,
+                  onChanged: isAutoPlaying ? null : onToggleAutoAdvance,
+                  activeColor: const Color(0xFF00E676),
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 ),
-              // Auto-play button
-              if (onToggleAutoPlay != null)
+                const SizedBox(width: 4),
+                const Text('自动核对', style: TextStyle(color: Colors.white70, fontSize: 12)),
+                const SizedBox(width: 12),
+                // Prev step
                 IconButton(
-                  icon: Icon(
-                    isAutoPlaying ? Icons.pause_circle_filled_rounded : Icons.play_circle_fill_rounded,
-                    size: 26,
-                  ),
-                  color: isAutoPlaying ? const Color(0xFFFF5252) : const Color(0xFF00E676),
-                  tooltip: isAutoPlaying ? '暂停演示' : '连续演示',
-                  onPressed: isAnimating && !isAutoPlaying ? null : onToggleAutoPlay,
+                  padding: const EdgeInsets.all(6),
+                  constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                  icon: const Icon(Icons.arrow_back_ios_rounded, size: 18),
+                  color: canPrev ? Colors.white : Colors.white24,
+                  tooltip: '上一步',
+                  onPressed: canPrev ? onPrev : null,
                 ),
-              // Next step or Finish
-              if (isLastStep)
-                ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF00E676),
-                    foregroundColor: Colors.black,
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    minimumSize: const Size(80, 36),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                // Replay button
+                if (onReplay != null)
+                  IconButton(
+                    padding: const EdgeInsets.all(6),
+                    constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                    icon: const Icon(Icons.replay_rounded, size: 20),
+                    color: canReplay ? const Color(0xFF40C4FF) : Colors.white24,
+                    tooltip: '重播本步',
+                    onPressed: canReplay ? onReplay : null,
                   ),
-                  icon: const Icon(Icons.check_circle_rounded, size: 18),
-                  label: const Text(
-                    '完成复原',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                // Auto-play button
+                if (onToggleAutoPlay != null)
+                  IconButton(
+                    padding: const EdgeInsets.all(6),
+                    constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                    icon: Icon(
+                      isAutoPlaying ? Icons.pause_circle_filled_rounded : Icons.play_circle_fill_rounded,
+                      size: 24,
+                    ),
+                    color: isAutoPlaying ? const Color(0xFFFF5252) : const Color(0xFF00E676),
+                    tooltip: isAutoPlaying ? '暂停演示' : '连续演示',
+                    onPressed: isAnimating && !isAutoPlaying ? null : onToggleAutoPlay,
                   ),
-                  onPressed: canNext ? onNext : null,
-                )
-              else
-                IconButton(
-                  icon: const Icon(Icons.arrow_forward_ios_rounded, size: 20),
-                  color: canNext ? Colors.white : Colors.white24,
-                  tooltip: '下一步',
-                  onPressed: canNext ? onNext : null,
-                ),
-            ],
+                // Next step or Finish
+                if (isLastStep)
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF00E676),
+                      foregroundColor: Colors.black,
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      minimumSize: const Size(80, 36),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    icon: const Icon(Icons.check_circle_rounded, size: 18),
+                    label: const Text(
+                      '完成复原',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                    ),
+                    onPressed: canNext ? onNext : null,
+                  )
+                else
+                  IconButton(
+                    padding: const EdgeInsets.all(6),
+                    constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                    icon: const Icon(Icons.arrow_forward_ios_rounded, size: 18),
+                    color: canNext ? Colors.white : Colors.white24,
+                    tooltip: '下一步',
+                    onPressed: canNext ? onNext : null,
+                  ),
+              ],
+            ),
           ),
         ],
       ),
