@@ -389,7 +389,6 @@ void main() {
       // Verify beginner elements
       expect(find.text('终步：完成复原'), findsOneWidget);
       expect(find.text('完成复原'), findsOneWidget);
-      expect(find.text('新手帮助'), findsOneWidget);
       expect(find.textContaining('口诀：'), findsOneWidget);
 
       await tester.tap(find.text('完成复原'));

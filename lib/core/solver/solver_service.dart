@@ -28,7 +28,7 @@ class SolverService {
         return SolutionStep(
           stepIndex: i + 1,
           moveNotation: m,
-          stageName: "最少步最优解",
+          stageName: "最少步最优解 (Kociemba)",
           visualHint: "执行标准单步转动: $m",
           explanation: "根据两阶段算法优化的核心复原步骤",
         );

@@ -142,11 +142,11 @@ class StepGuideCard extends StatelessWidget {
             ),
           ),
 
-          // Beginner Mnemonic / Plain Chinese translation + Beginner Help
+          // Beginner Mnemonic / Plain Chinese translation
           if (mnemonic.isNotEmpty) ...[
             const SizedBox(height: 6),
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               decoration: BoxDecoration(
                 color: Colors.black26,
                 borderRadius: BorderRadius.circular(10),
@@ -155,82 +155,18 @@ class StepGuideCard extends StatelessWidget {
               child: Row(
                 children: [
                   const Icon(Icons.record_voice_over_rounded, color: Color(0xFF8C9EFF), size: 16),
-                  const SizedBox(width: 6),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       '口诀：$mnemonic',
                       style: const TextStyle(
                         color: Color(0xFFE0E0E0),
-                        fontSize: 12,
+                        fontSize: 13,
                         fontWeight: FontWeight.w500,
                       ),
                     ),
                   ),
-                  const SizedBox(width: 6),
-                  InkWell(
-                    onTap: () {
-                      if (onHelp != null) {
-                        onHelp!();
-                      } else {
-                        BeginnerGuideSheet.show(context);
-                      }
-                    },
-                    borderRadius: BorderRadius.circular(8),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.08),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.white24, width: 0.8),
-                      ),
-                      child: const Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.help_outline_rounded, color: Color(0xFF40C4FF), size: 13),
-                          SizedBox(width: 3),
-                          Text(
-                            '新手帮助',
-                            style: TextStyle(color: Color(0xFF40C4FF), fontSize: 11, fontWeight: FontWeight.bold),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
                 ],
-              ),
-            ),
-          ] else ...[
-            const SizedBox(height: 6),
-            Align(
-              alignment: Alignment.centerRight,
-              child: InkWell(
-                onTap: () {
-                  if (onHelp != null) {
-                    onHelp!();
-                  } else {
-                    BeginnerGuideSheet.show(context);
-                  }
-                },
-                borderRadius: BorderRadius.circular(8),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.08),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.white24, width: 0.8),
-                  ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.help_outline_rounded, color: Color(0xFF40C4FF), size: 13),
-                      SizedBox(width: 4),
-                      Text(
-                        '新手帮助',
-                        style: TextStyle(color: Color(0xFF40C4FF), fontSize: 11, fontWeight: FontWeight.bold),
-                      ),
-                    ],
-                  ),
-                ),
               ),
             ),
           ],
