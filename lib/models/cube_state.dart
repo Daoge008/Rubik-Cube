@@ -164,16 +164,13 @@ class CubeState {
     }
   }
 
-  /// Applies a single move notation (e.g. "R", "R'", "R2", "U", "U2", etc.)
+  /// Applies a single move notation (e.g. "R", "R'", "R2", "M", "E'", etc.)
   /// and returns a new [CubeState].
   CubeState applyMove(String move) {
     final m = move.trim();
     if (m.isEmpty) return this;
 
     final face = m[0].toUpperCase();
-    if (!['U', 'D', 'R', 'L', 'F', 'B'].contains(face)) {
-      return this;
-    }
 
     int turns = 1;
     if (m.length > 1) {
@@ -184,11 +181,69 @@ class CubeState {
       }
     }
 
+    // Middle-layer slice moves: M, E, S
+    if (['M', 'E', 'S'].contains(face)) {
+      final newList = List<CubeColor>.from(facelets);
+      for (var i = 0; i < turns; i++) {
+        _applySliceMoveCW(newList, face);
+      }
+      return CubeState(newList);
+    }
+
+    if (!['U', 'D', 'R', 'L', 'F', 'B'].contains(face)) {
+      return this;
+    }
+
     final newList = List<CubeColor>.from(facelets);
     for (var i = 0; i < turns; i++) {
       _applyBaseMoveCW(newList, face);
     }
     return CubeState(newList);
+  }
+
+  /// Middle-layer slice moves (no face rotation, only the inner 3 cells).
+  ///
+  /// M  – middle column, moves like L (L direction = up on front face)
+  /// E  – equatorial row, moves like D (D direction = right on front face)
+  /// S  – standing slice, moves like F
+  static void _applySliceMoveCW(List<CubeColor> list, String slice) {
+    switch (slice) {
+      case 'M':
+        // Middle column (col=1), same direction as L clockwise:
+        //   U col1 → F col1 → D col1 → B col1(reversed) → U col1
+        _cycleStrips(
+          list,
+          [1, 4, 7],     // U middle col (top to bot)
+          [18 + 1, 18 + 4, 18 + 7], // F middle col
+          [27 + 7, 27 + 4, 27 + 1], // D middle col (reversed for B backtrack)
+          [45 + 7, 45 + 4, 45 + 1], // B middle col (reversed)
+        );
+        break;
+
+      case 'E':
+        // Equatorial row (row=1), same direction as D clockwise:
+        //   F row1 → R row1 → B row1 → L row1 → F row1
+        _cycleStrips(
+          list,
+          [18 + 3, 18 + 4, 18 + 5], // F middle row
+          [9 + 3,  9 + 4,  9 + 5],  // R middle row
+          [45 + 3, 45 + 4, 45 + 5], // B middle row
+          [36 + 3, 36 + 4, 36 + 5], // L middle row
+        );
+        break;
+
+      case 'S':
+        // Standing slice (between F and B), same direction as F clockwise:
+        //   U row1 → R col1 → D row1(rev) → L col1(rev) → U row1
+        _cycleStrips(
+          list,
+          [3, 4, 5],               // U middle row
+          [9 + 1, 9 + 4, 9 + 7],  // R middle col (top to bot)
+          [27 + 5, 27 + 4, 27 + 3], // D middle row (reversed)
+          [36 + 7, 36 + 4, 36 + 1], // L middle col (reversed)
+        );
+        break;
+    }
   }
 
   /// Applies a sequence of space-separated moves (e.g. "R U R' U'").

@@ -139,7 +139,7 @@ class _InteractiveCube3DState extends State<InteractiveCube3D>
 
     final delta = details.localPosition - _panStartPos!;
 
-    // If touching blank space or decided to rotate camera
+    // If pan started outside the cube → always camera rotate
     if (_isCameraRotating || _panHit == null) {
       setState(() {
         _yaw += details.delta.dx * 0.012;
@@ -148,17 +148,16 @@ class _InteractiveCube3DState extends State<InteractiveCube3D>
       return;
     }
 
-    // Swiping on a face
-    if (!_isTurnTriggered && widget.allowFaceTurns && _panHit != null) {
+    // Pan started ON a cube cell → try to resolve a face turn
+    if (!_isTurnTriggered && widget.allowFaceTurns) {
       if (delta.distance > 18) {
         final move = _resolveMoveFromSwipe(_panHit!, delta);
         if (move != null) {
           _isTurnTriggered = true;
           animateMove(move);
-        } else {
-          // If gesture is ambiguous, fall back to rotating camera
-          _isCameraRotating = true;
         }
+        // If still null (ambiguous direction on an edge cell), keep waiting —
+        // do NOT fall back to camera rotation while the finger is on the cube.
       }
     }
   }
@@ -181,80 +180,116 @@ class _InteractiveCube3DState extends State<InteractiveCube3D>
   }
 
   /// Maps a swipe on a facelet to a Rubik's Cube turn notation.
+  ///
+  /// Convention: drag a sticker in direction D → the slice that sticker lives
+  /// on moves in that same direction (natural feel).
   String? _resolveMoveFromSwipe(_HitTestResult hit, Offset delta) {
-    final uScreen = hit.uScreenVec;
-    final vScreen = hit.vScreenVec;
+    final uScreen = hit.uScreenVec; // +u → screen-right on this face
+    final vScreen = hit.vScreenVec; // +v → screen-down on this face
 
     final dotU = delta.dx * uScreen.dx + delta.dy * uScreen.dy;
     final dotV = delta.dx * vScreen.dx + delta.dy * vScreen.dy;
 
+    // Determine dominant swipe axis on this face
     final isHorizontal = dotU.abs() > dotV.abs();
+
+    // Positive sign means swipe in the +u (horizontal) or +v (vertical) direction
     final sign = isHorizontal ? (dotU > 0 ? 1 : -1) : (dotV > 0 ? 1 : -1);
 
     final face = hit.faceIndex;
-    final row = hit.row;
-    final col = hit.col;
+    final row  = hit.row;
+    final col  = hit.col;
 
-    // Face mapping:
-    // 0: U, 1: R, 2: F, 3: D, 4: L, 5: B
+    // Helper: pick from (positive-sign move, negative-sign move)
+    String pick(String pos, String neg) => sign > 0 ? pos : neg;
+
     switch (face) {
-      case 2: // Front (F)
+      // ── Front face (F, z = +1.5) ──────────────────────────────────────────
+      // +u = right, +v = down
+      case 2:
         if (isHorizontal) {
-          if (row == 0) return sign > 0 ? "U'" : "U";
-          if (row == 2) return sign > 0 ? "D" : "D'";
+          // Horizontal swipe → moves a horizontal slice (U/E/D)
+          // Swiping right on F top row → U' (top goes right = U')
+          if (row == 0) return pick("U'", "U");
+          if (row == 1) return pick("E",  "E'");
+          if (row == 2) return pick("D",  "D'");
         } else {
-          if (col == 0) return sign > 0 ? "L'" : "L";
-          if (col == 2) return sign > 0 ? "R" : "R'";
+          // Vertical swipe → moves a vertical slice (L/M/R)
+          // Swiping down on F left col → L (left face goes down = L)
+          if (col == 0) return pick("L",  "L'");
+          if (col == 1) return pick("M",  "M'");
+          if (col == 2) return pick("R'", "R");
         }
         break;
 
-      case 0: // Up (U)
+      // ── Up face (U, y = +1.5) ─────────────────────────────────────────────
+      // +u = right (world +x), +v = forward (world +z)
+      case 0:
         if (isHorizontal) {
-          if (row == 0) return sign > 0 ? "B'" : "B";
-          if (row == 2) return sign > 0 ? "F" : "F'";
+          // Horizontal swipe → moves a "depth" slice as seen from top (B/U slice/F)
+          if (row == 0) return pick("B",  "B'");
+          if (row == 1) return pick("U",  "U'"); // middle of U face → rotate U layer
+          if (row == 2) return pick("F'", "F");
         } else {
-          if (col == 0) return sign > 0 ? "L" : "L'";
-          if (col == 2) return sign > 0 ? "R'" : "R";
+          // Vertical (depth) swipe → moves a left/right slice
+          if (col == 0) return pick("L'", "L");
+          if (col == 1) return pick("M'", "M");
+          if (col == 2) return pick("R",  "R'");
         }
         break;
 
-      case 3: // Down (D)
+      // ── Down face (D, y = -1.5) ───────────────────────────────────────────
+      case 3:
         if (isHorizontal) {
-          if (row == 0) return sign > 0 ? "F'" : "F";
-          if (row == 2) return sign > 0 ? "B" : "B'";
+          if (row == 0) return pick("F",  "F'");
+          if (row == 1) return pick("D'", "D");
+          if (row == 2) return pick("B'", "B");
         } else {
-          if (col == 0) return sign > 0 ? "L'" : "L";
-          if (col == 2) return sign > 0 ? "R" : "R'";
+          if (col == 0) return pick("L'", "L");
+          if (col == 1) return pick("M'", "M");
+          if (col == 2) return pick("R",  "R'");
         }
         break;
 
-      case 1: // Right (R)
+      // ── Right face (R, x = +1.5) ──────────────────────────────────────────
+      // +u = screen-left (world -z), +v = screen-down (world -y)
+      case 1:
         if (isHorizontal) {
-          if (row == 0) return sign > 0 ? "U'" : "U";
-          if (row == 2) return sign > 0 ? "D" : "D'";
+          // Horizontal swipe on R → moves a vertical layer (U/E/D)
+          if (row == 0) return pick("U",  "U'");
+          if (row == 1) return pick("E'", "E");
+          if (row == 2) return pick("D'", "D");
         } else {
-          if (col == 0) return sign > 0 ? "F" : "F'";
-          if (col == 2) return sign > 0 ? "B'" : "B";
+          // Vertical swipe on R → moves a depth slice (F/S/B)
+          if (col == 0) return pick("F'", "F");
+          if (col == 1) return pick("S'", "S");
+          if (col == 2) return pick("B",  "B'");
         }
         break;
 
-      case 4: // Left (L)
+      // ── Left face (L, x = -1.5) ───────────────────────────────────────────
+      case 4:
         if (isHorizontal) {
-          if (row == 0) return sign > 0 ? "U'" : "U";
-          if (row == 2) return sign > 0 ? "D" : "D'";
+          if (row == 0) return pick("U'", "U");
+          if (row == 1) return pick("E",  "E'");
+          if (row == 2) return pick("D",  "D'");
         } else {
-          if (col == 0) return sign > 0 ? "B" : "B'";
-          if (col == 2) return sign > 0 ? "F'" : "F";
+          if (col == 0) return pick("B'", "B");
+          if (col == 1) return pick("S",  "S'");
+          if (col == 2) return pick("F",  "F'");
         }
         break;
 
-      case 5: // Back (B)
+      // ── Back face (B, z = -1.5) ───────────────────────────────────────────
+      case 5:
         if (isHorizontal) {
-          if (row == 0) return sign > 0 ? "U'" : "U";
-          if (row == 2) return sign > 0 ? "D" : "D'";
+          if (row == 0) return pick("U",  "U'");
+          if (row == 1) return pick("E'", "E");
+          if (row == 2) return pick("D'", "D");
         } else {
-          if (col == 0) return sign > 0 ? "R" : "R'";
-          if (col == 2) return sign > 0 ? "L'" : "L";
+          if (col == 0) return pick("R'", "R");
+          if (col == 1) return pick("M'", "M");
+          if (col == 2) return pick("L",  "L'");
         }
         break;
     }
@@ -537,6 +572,16 @@ _ProjectedQuad? _buildStickerQuad(
       case 'B':
         if (p.z < -0.5) return _rotateZ(p, animAngle);
         break;
+      // Middle-slice animation
+      case 'M':
+        if (p.x.abs() <= 0.5) return _rotateX(p, animAngle); // same dir as L
+        break;
+      case 'E':
+        if (p.y.abs() <= 0.5) return _rotateY(p, -animAngle); // same dir as D
+        break;
+      case 'S':
+        if (p.z.abs() <= 0.5) return _rotateZ(p, -animAngle); // same dir as F
+        break;
     }
     return p;
   }
@@ -714,9 +759,9 @@ class _Cube3DPainter extends CustomPainter {
     }
     final cellPx = totalEdge / 4;
 
-    // ── 1. Groove gap between cubies ─────────────────────────────────────────
-    final bodyPts = _insetQuad(pts, cellPx * 0.07);
-    final bodyPath = _roundedQuadPath(bodyPts, cellPx * 0.16);
+    // ── 1. Groove gap between cubies (narrow so cells look tight/realistic) ──
+    final bodyPts = _insetQuad(pts, cellPx * 0.045);
+    final bodyPath = _roundedQuadPath(bodyPts, cellPx * 0.18);
 
     // ── 2. Cubie body: dark gray with a radial "pillow" gradient ─────────────
     final bodyCenter = Offset(
