@@ -3,6 +3,7 @@ import '../../models/cube_state.dart';
 import '../../models/solution_step.dart';
 import '../../core/solver/solver_service.dart';
 import '../../core/ar/step_validator.dart';
+import '../widgets/cube_3d.dart';
 import '../widgets/step_guide_card.dart';
 
 class SolverScreen extends StatefulWidget {
@@ -19,6 +20,7 @@ class _SolverScreenState extends State<SolverScreen> {
   final SolverService _solverService = SolverService();
   final StepValidatorController _validator = StepValidatorController();
   List<SolutionStep> _steps = [];
+  List<CubeState> _stepStates = [];
   bool _isLoading = true;
   String? _solveError;
 
@@ -28,6 +30,15 @@ class _SolverScreenState extends State<SolverScreen> {
     try {
       _steps = _solverService.solve(widget.initialState, widget.mode);
       _validator.initialize(widget.initialState.toSingmaster(), _steps);
+
+      // Precompute cube state at each step
+      _stepStates = [widget.initialState];
+      var cur = widget.initialState;
+      for (final step in _steps) {
+        cur = cur.applyMoves(step.moveNotation);
+        _stepStates.add(cur);
+      }
+
       _validator.addListener(() {
         if (mounted) setState(() {});
       });
@@ -39,12 +50,20 @@ class _SolverScreenState extends State<SolverScreen> {
     _isLoading = false;
   }
 
+  CubeState get _currentCubeState {
+    final idx = _validator.currentStepIndex;
+    if (idx >= 0 && idx < _stepStates.length) {
+      return _stepStates[idx];
+    }
+    return _stepStates.isNotEmpty ? _stepStates.last : widget.initialState;
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
       return const Scaffold(
         backgroundColor: Color(0xFF12121E),
-        body: Center(child: CircularProgressIndicator()),
+        body: Center(child: CircularProgressIndicator(color: Color(0xFF00E676))),
       );
     }
 
@@ -94,32 +113,62 @@ class _SolverScreenState extends State<SolverScreen> {
       appBar: AppBar(
         title: Text(widget.mode == SolveMode.kociemba ? '最少步求解' : 'CFOP 教学'),
         backgroundColor: Colors.transparent,
+        elevation: 0,
       ),
-      body: Center(
-        child: isSolved
-            ? Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Icon(Icons.check_circle, color: Color(0xFF00E676), size: 64),
-                  const SizedBox(height: 16),
-                  const Text('魔方已成功复原！', style: TextStyle(color: Colors.white, fontSize: 20)),
-                  const SizedBox(height: 16),
-                  ElevatedButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: const Text('返回主页'),
-                  ),
-                ],
+      body: SafeArea(
+        child: Column(
+          children: [
+            // 3D Cube representation at current step
+            Expanded(
+              child: Center(
+                child: InteractiveCube3D(
+                  state: _currentCubeState,
+                  size: 260,
+                  interactive: true,
+                  allowFaceTurns: false,
+                  highlightMove: current?.moveNotation,
+                ),
+              ),
+            ),
+
+            if (isSolved)
+              Container(
+                margin: const EdgeInsets.all(20),
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1E1E2C),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: const Color(0xFF00E676), width: 1.5),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.check_circle, color: Color(0xFF00E676), size: 54),
+                    const SizedBox(height: 12),
+                    const Text('魔方已成功复原！', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 16),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF00E676),
+                        foregroundColor: Colors.black,
+                      ),
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('返回主页'),
+                    ),
+                  ],
+                ),
               )
-            : (current != null
-                ? StepGuideCard(
-                    step: current,
-                    totalSteps: _steps.length,
-                    onNext: _validator.manualNext,
-                    onPrev: _validator.manualPrevious,
-                    isAutoAdvance: _validator.autoAdvanceEnabled,
-                    onToggleAutoAdvance: _validator.toggleAutoAdvance,
-                  )
-                : const SizedBox.shrink()),
+            else if (current != null)
+              StepGuideCard(
+                step: current,
+                totalSteps: _steps.length,
+                onNext: _validator.manualNext,
+                onPrev: _validator.manualPrevious,
+                isAutoAdvance: _validator.autoAdvanceEnabled,
+                onToggleAutoAdvance: _validator.toggleAutoAdvance,
+              ),
+          ],
+        ),
       ),
     );
   }

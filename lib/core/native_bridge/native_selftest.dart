@@ -385,6 +385,9 @@ Future<void> _runVisionSelfTest(
     validationError == null,
     validationError ?? '通过校验，可交给求解器',
   );
+
+  // Clean up synthetic scan state so the pipeline does not retain the self-test result.
+  engine.resetScanner();
 }
 
 

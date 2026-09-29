@@ -268,6 +268,9 @@ void reset_cube_scanner(void* handle) {
     if (!handle) return;
     auto* ctx = static_cast<PipelineContext*>(handle);
     ctx->aggregator.reset();
+    ctx->assembly = FaceAssembler::Result{};
+    ctx->assembledVersion = 0;
+    ctx->assemblyAttempted = false;
 }
 
 int get_scanned_faces_count(void* handle) {
@@ -279,6 +282,8 @@ int get_scanned_faces_count(void* handle) {
 int get_scanned_cube_string(void* handle, char* out_buf, int max_len) {
     if (!handle || !out_buf || max_len < 55) return 0;
     auto* ctx = static_cast<PipelineContext*>(handle);
+
+    if (!ctx->aggregator.isAllFacesScanned()) return 0;
 
     // The raw aggregator output cannot be handed out directly: the six faces
     // were each read at an arbitrary rotation, so they only become a legal cube

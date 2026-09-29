@@ -205,7 +205,12 @@ class _ScanScreenState extends State<ScanScreen> {
   /// cube. Six locked faces alone are not enough - the stitch can still fail,
   /// and that failure is reported in place rather than by navigating.
   void _maybeFinish() {
-    if (_finishing || !mounted || _scanner.scannedState == null) return;
+    if (_finishing || !mounted) return;
+    if (_scanner.scannedFacesCount < 6 ||
+        _scanner.scannedState == null ||
+        _scanner.assemblyState != ScanAssemblyState.assembled) {
+      return;
+    }
     _finishing = true;
 
     final state = _scanner.scannedState!;

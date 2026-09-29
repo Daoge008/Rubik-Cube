@@ -91,11 +91,16 @@ class ScannerService {
     syncFromNative();
   }
 
-  /// Pulls the latest face count and assembled cube state out of the engine.
   void syncFromNative() {
     if (!isEngineReady) return;
 
     _scannedFacesCount = _bridge.getScannedFacesCount();
+
+    if (_scannedFacesCount < 6) {
+      _scannedState = null;
+      _isComplete = false;
+      return;
+    }
 
     final cubeString = _bridge.getScannedCubeString();
     if (cubeString != null) {
@@ -105,6 +110,7 @@ class ScannerService {
       _isComplete = true;
     } else {
       _isComplete = false;
+      _scannedState = null;
     }
   }
 }
