@@ -6,6 +6,10 @@ class StepGuideCard extends StatelessWidget {
   final int totalSteps;
   final VoidCallback onNext;
   final VoidCallback onPrev;
+  final VoidCallback? onReplay;
+  final bool isAnimating;
+  final bool isAutoPlaying;
+  final VoidCallback? onToggleAutoPlay;
   final bool isAutoAdvance;
   final ValueChanged<bool> onToggleAutoAdvance;
 
@@ -15,12 +19,20 @@ class StepGuideCard extends StatelessWidget {
     required this.totalSteps,
     required this.onNext,
     required this.onPrev,
+    this.onReplay,
+    this.isAnimating = false,
+    this.isAutoPlaying = false,
+    this.onToggleAutoPlay,
     required this.isAutoAdvance,
     required this.onToggleAutoAdvance,
   }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
+    final canPrev = !isAnimating && !isAutoPlaying && step.stepIndex > 1;
+    final canNext = !isAnimating && !isAutoPlaying && step.stepIndex < totalSteps;
+    final canReplay = !isAnimating && !isAutoPlaying && onReplay != null;
+
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       padding: const EdgeInsets.all(16),
@@ -50,6 +62,38 @@ class StepGuideCard extends StatelessWidget {
                   ),
                 ),
               ),
+              if (isAutoPlaying)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF00E676).withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: const Color(0xFF00E676), width: 0.8),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SizedBox(
+                        width: 8,
+                        height: 8,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 1.5,
+                          valueColor: AlwaysStoppedAnimation(Color(0xFF00E676)),
+                        ),
+                      ),
+                      SizedBox(width: 6),
+                      Text(
+                        '自动播放中',
+                        style: TextStyle(color: Color(0xFF00E676), fontSize: 11, fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ),
+                )
+              else if (isAnimating)
+                const Text(
+                  '转动中...',
+                  style: TextStyle(color: Color(0xFFFFD600), fontSize: 12, fontWeight: FontWeight.bold),
+                ),
               Text(
                 '第 ${step.stepIndex} / $totalSteps 步',
                 style: const TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.bold),
@@ -59,10 +103,11 @@ class StepGuideCard extends StatelessWidget {
           const SizedBox(height: 12),
           Text(
             step.moveNotation,
-            style: const TextStyle(
-              color: Color(0xFFFFD600),
+            style: TextStyle(
+              color: isAnimating ? const Color(0xFFFFAB00) : const Color(0xFFFFD600),
               fontSize: 32,
               fontWeight: FontWeight.w900,
+              letterSpacing: 2.0,
             ),
           ),
           const SizedBox(height: 12),
@@ -70,18 +115,43 @@ class StepGuideCard extends StatelessWidget {
             children: [
               Switch(
                 value: isAutoAdvance,
-                onChanged: onToggleAutoAdvance,
+                onChanged: isAutoPlaying ? null : onToggleAutoAdvance,
                 activeColor: const Color(0xFF00E676),
               ),
-              const Text('自动核对跳步', style: TextStyle(color: Colors.white70, fontSize: 12)),
+              const Text('自动核对', style: TextStyle(color: Colors.white70, fontSize: 12)),
               const Spacer(),
+              // Prev step
               IconButton(
-                icon: const Icon(Icons.arrow_back_ios_rounded, color: Colors.white),
-                onPressed: step.stepIndex > 1 ? onPrev : null,
+                icon: const Icon(Icons.arrow_back_ios_rounded, size: 20),
+                color: canPrev ? Colors.white : Colors.white24,
+                tooltip: '上一步',
+                onPressed: canPrev ? onPrev : null,
               ),
+              // Replay button
+              if (onReplay != null)
+                IconButton(
+                  icon: const Icon(Icons.replay_rounded, size: 22),
+                  color: canReplay ? const Color(0xFF40C4FF) : Colors.white24,
+                  tooltip: '重播本步',
+                  onPressed: canReplay ? onReplay : null,
+                ),
+              // Auto-play button
+              if (onToggleAutoPlay != null)
+                IconButton(
+                  icon: Icon(
+                    isAutoPlaying ? Icons.pause_circle_filled_rounded : Icons.play_circle_fill_rounded,
+                    size: 26,
+                  ),
+                  color: isAutoPlaying ? const Color(0xFFFF5252) : const Color(0xFF00E676),
+                  tooltip: isAutoPlaying ? '暂停演示' : '连续演示',
+                  onPressed: isAnimating && !isAutoPlaying ? null : onToggleAutoPlay,
+                ),
+              // Next step
               IconButton(
-                icon: const Icon(Icons.arrow_forward_ios_rounded, color: Colors.white),
-                onPressed: step.stepIndex < totalSteps ? onNext : null,
+                icon: const Icon(Icons.arrow_forward_ios_rounded, size: 20),
+                color: canNext ? Colors.white : Colors.white24,
+                tooltip: '下一步',
+                onPressed: canNext ? onNext : null,
               ),
             ],
           ),

@@ -7,6 +7,7 @@ import 'package:rubik_cube_solver/ui/screens/home_screen.dart';
 import 'package:rubik_cube_solver/ui/screens/manual_edit_screen.dart';
 import 'package:rubik_cube_solver/ui/screens/scan_screen.dart';
 import 'package:rubik_cube_solver/ui/widgets/cube_3d.dart';
+import 'package:rubik_cube_solver/ui/widgets/step_guide_card.dart';
 
 void main() {
   group('3D Cube and UI Tests', () {
@@ -119,10 +120,55 @@ void main() {
 
       // Moving right and left must be inverses of each other (e.g. E vs E')
       expect(
-        (moveRight == "${moveLeft}'") || (moveLeft == "${moveRight}'"),
+        (moveRight == "$moveLeft'") || (moveLeft == "$moveRight'"),
         isTrue,
         reason: 'Swiping opposite directions must produce inverse moves (got right=$moveRight, left=$moveLeft)',
       );
+    });
+
+    testWidgets('InteractiveCube3DState.animateMoves executes moves sequentially with animation', (tester) async {
+      final key = GlobalKey<InteractiveCube3DState>();
+      final moves = <String>[];
+      var current = CubeState.solved();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Center(
+              child: StatefulBuilder(
+                builder: (context, setState) {
+                  return InteractiveCube3D(
+                    key: key,
+                    state: current,
+                    onMoveApplied: (m) {
+                      setState(() {
+                        current = current.applyMove(m);
+                        moves.add(m);
+                      });
+                    },
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      );
+
+      expect(key.currentState, isNotNull);
+
+      // Animate moves sequence ["R", "U"]
+      bool completed = false;
+      final animFuture = key.currentState!
+          .animateMoves(["R", "U"], perMoveDuration: const Duration(milliseconds: 100), pauseBetweenMoves: const Duration(milliseconds: 50))
+          .then((_) => completed = true);
+
+      while (!completed) {
+        await tester.pump(const Duration(milliseconds: 30));
+      }
+      await animFuture;
+
+      expect(moves, equals(["R", "U"]));
+      expect(current.facelets, equals(CubeState.solved().applyMove("R").applyMove("U").facelets));
     });
 
     testWidgets('CubeSimulatorScreen shows 3D cube and random scramble button', (tester) async {
@@ -221,8 +267,99 @@ void main() {
           ),
         ),
       );
-
       expect(find.byType(CustomPaint), findsWidgets);
+    });
+
+    testWidgets('StepGuideCard renders navigation controls and triggers callbacks', (tester) async {
+      bool nextCalled = false;
+      bool prevCalled = false;
+      bool replayCalled = false;
+      bool toggleAutoPlayCalled = false;
+
+      final step = SolutionStep(
+        stepIndex: 2,
+        moveNotation: "R U R'",
+        stageName: 'CFOP 底棱对齐',
+        visualHint: '测试提示',
+        explanation: '测试讲解',
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: StepGuideCard(
+              step: step,
+              totalSteps: 5,
+              onNext: () => nextCalled = true,
+              onPrev: () => prevCalled = true,
+              onReplay: () => replayCalled = true,
+              onToggleAutoPlay: () => toggleAutoPlayCalled = true,
+              isAutoAdvance: false,
+              onToggleAutoAdvance: (_) {},
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text("R U R'"), findsOneWidget);
+      expect(find.text('CFOP 底棱对齐'), findsOneWidget);
+      expect(find.text('第 2 / 5 步'), findsOneWidget);
+
+      // Tap Next
+      await tester.tap(find.byTooltip('下一步'));
+      expect(nextCalled, isTrue);
+
+      // Tap Prev
+      await tester.tap(find.byTooltip('上一步'));
+      expect(prevCalled, isTrue);
+
+      // Tap Replay
+      await tester.tap(find.byTooltip('重播本步'));
+      expect(replayCalled, isTrue);
+
+      // Tap Auto-play
+      await tester.tap(find.byTooltip('连续演示'));
+      expect(toggleAutoPlayCalled, isTrue);
+    });
+
+    testWidgets('StepGuideCard disables buttons when isAnimating is true', (tester) async {
+      final step = SolutionStep(
+        stepIndex: 2,
+        moveNotation: "U",
+        stageName: '步骤演示',
+        visualHint: '测试',
+        explanation: '测试',
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: StepGuideCard(
+              step: step,
+              totalSteps: 5,
+              onNext: () {},
+              onPrev: () {},
+              onReplay: () {},
+              onToggleAutoPlay: () {},
+              isAnimating: true,
+              isAutoAdvance: false,
+              onToggleAutoAdvance: (_) {},
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('转动中...'), findsOneWidget);
+
+      final nextBtn = tester.widget<IconButton>(find.widgetWithIcon(IconButton, Icons.arrow_forward_ios_rounded));
+      expect(nextBtn.onPressed, isNull);
+
+      final prevBtn = tester.widget<IconButton>(find.widgetWithIcon(IconButton, Icons.arrow_back_ios_rounded));
+      expect(prevBtn.onPressed, isNull);
+
+      final replayBtn = tester.widget<IconButton>(find.widgetWithIcon(IconButton, Icons.replay_rounded));
+      expect(replayBtn.onPressed, isNull);
     });
   });
 }
+

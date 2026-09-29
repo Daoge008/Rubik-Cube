@@ -55,19 +55,114 @@ class CubeState {
     return counts;
   }
 
-  /// Canonical 54-element permutation maps for standard Rubik's cube face and slice moves.
-  /// Exactly matches C++ CubeModel, ensuring every move produces a valid, solvable state.
-  static const Map<String, List<int>> _movePermutations = {
-    'U': [6, 3, 0, 7, 4, 1, 8, 5, 2, 45, 46, 47, 12, 13, 14, 15, 16, 17, 9, 10, 11, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 18, 19, 20, 39, 40, 41, 42, 43, 44, 36, 37, 38, 48, 49, 50, 51, 52, 53],
-    'R': [0, 1, 20, 3, 4, 23, 6, 7, 26, 15, 12, 9, 16, 13, 10, 17, 14, 11, 18, 19, 29, 21, 22, 32, 24, 25, 35, 27, 28, 51, 30, 31, 50, 33, 34, 45, 36, 37, 38, 39, 40, 41, 42, 43, 44, 8, 46, 47, 48, 49, 5, 2, 52, 53],
-    'F': [0, 1, 2, 3, 4, 5, 44, 41, 38, 6, 10, 11, 7, 13, 14, 8, 16, 17, 24, 21, 18, 25, 22, 19, 26, 23, 20, 15, 12, 9, 30, 31, 32, 33, 34, 35, 36, 37, 27, 39, 40, 28, 42, 43, 29, 45, 46, 47, 48, 49, 50, 51, 52, 53],
-    'D': [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 24, 25, 26, 18, 19, 20, 21, 22, 23, 42, 43, 44, 33, 30, 27, 34, 31, 28, 35, 32, 29, 36, 37, 38, 39, 40, 41, 51, 52, 53, 45, 46, 47, 48, 49, 50, 15, 16, 17],
-    'L': [53, 1, 2, 48, 4, 5, 47, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 0, 19, 20, 3, 22, 23, 6, 25, 26, 18, 28, 29, 21, 31, 32, 24, 34, 35, 42, 39, 36, 43, 40, 37, 44, 41, 38, 45, 46, 33, 30, 49, 50, 51, 52, 27],
-    'B': [11, 14, 17, 3, 4, 5, 6, 7, 8, 9, 10, 35, 12, 13, 34, 15, 16, 33, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 36, 39, 42, 2, 37, 38, 1, 40, 41, 0, 43, 44, 51, 50, 45, 46, 49, 52, 53, 48, 47],
-    'M': [0, 52, 2, 3, 49, 5, 6, 46, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 1, 20, 21, 4, 23, 24, 7, 26, 27, 19, 29, 30, 22, 32, 33, 25, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 34, 47, 48, 31, 50, 51, 28, 53],
-    'E': [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 21, 22, 23, 15, 16, 17, 18, 19, 20, 39, 40, 41, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 48, 49, 50, 42, 43, 44, 45, 46, 47, 12, 13, 14, 51, 52, 53],
-    'S': [0, 1, 2, 43, 40, 37, 6, 7, 8, 9, 3, 11, 12, 4, 14, 15, 5, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 16, 13, 10, 33, 34, 35, 36, 30, 38, 39, 31, 41, 42, 32, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53],
-  };
+  /// Permutation map for a 90° clockwise rotation of 9 facelets on one face.
+  static const List<int> _faceRotCW = [6, 3, 0, 7, 4, 1, 8, 5, 2];
+
+  /// Cycles 4 strips of 3 facelets each: a -> b -> c -> d -> a.
+  static void _cycleStrips(
+    List<CubeColor> list,
+    List<int> a,
+    List<int> b,
+    List<int> c,
+    List<int> d,
+  ) {
+    final temp = [list[d[0]], list[d[1]], list[d[2]]];
+    list[d[0]] = list[c[0]];
+    list[d[1]] = list[c[1]];
+    list[d[2]] = list[c[2]];
+
+    list[c[0]] = list[b[0]];
+    list[c[1]] = list[b[1]];
+    list[c[2]] = list[b[2]];
+
+    list[b[0]] = list[a[0]];
+    list[b[1]] = list[a[1]];
+    list[b[2]] = list[a[2]];
+
+    list[a[0]] = temp[0];
+    list[a[1]] = temp[1];
+    list[a[2]] = temp[2];
+  }
+
+  /// Rotates a single face clockwise 90 degrees.
+  static void _rotateFaceCW(List<CubeColor> list, int faceIndex) {
+    final base = faceIndex * 9;
+    final old = [for (var i = 0; i < 9; i++) list[base + i]];
+    for (var i = 0; i < 9; i++) {
+      list[base + i] = old[_faceRotCW[i]];
+    }
+  }
+
+  /// Applies one single-layer clockwise 90° turn for face 'U', 'D', 'R', 'L', 'F', 'B'.
+  static void _applyBaseMoveCW(List<CubeColor> list, String face) {
+    switch (face) {
+      case 'U':
+        _rotateFaceCW(list, 0);
+        _cycleStrips(
+          list,
+          [45, 46, 47], // B top
+          [9, 10, 11],  // R top
+          [18, 19, 20], // F top
+          [36, 37, 38], // L top
+        );
+        break;
+
+      case 'D':
+        _rotateFaceCW(list, 3);
+        _cycleStrips(
+          list,
+          [24, 25, 26], // F bot
+          [15, 16, 17], // R bot
+          [51, 52, 53], // B bot
+          [42, 43, 44], // L bot
+        );
+        break;
+
+      case 'F':
+        _rotateFaceCW(list, 2);
+        _cycleStrips(
+          list,
+          [6, 7, 8],     // U bot
+          [9, 12, 15],   // R left
+          [29, 28, 27],  // D top (reverse)
+          [44, 41, 38],  // L right (reverse)
+        );
+        break;
+
+      case 'B':
+        _rotateFaceCW(list, 5);
+        _cycleStrips(
+          list,
+          [0, 1, 2],     // U top
+          [42, 39, 36],  // L left (reverse)
+          [35, 34, 33],  // D bot (reverse)
+          [11, 14, 17],  // R right
+        );
+        break;
+
+      case 'R':
+        _rotateFaceCW(list, 1);
+        _cycleStrips(
+          list,
+          [2, 5, 8],     // U right
+          [51, 48, 45],  // B left (reverse)
+          [29, 32, 35],  // D right
+          [20, 23, 26],  // F right
+        );
+        break;
+
+      case 'L':
+        _rotateFaceCW(list, 4);
+        _cycleStrips(
+          list,
+          [0, 3, 6],     // U left
+          [18, 21, 24],  // F left
+          [27, 30, 33],  // D left
+          [53, 50, 47],  // B right (reverse)
+        );
+        break;
+    }
+  }
 
   /// Applies a single move notation (e.g. "R", "R'", "R2", "M", "E'", etc.)
   /// and returns a new [CubeState].
@@ -76,8 +171,6 @@ class CubeState {
     if (m.isEmpty) return this;
 
     final face = m[0].toUpperCase();
-    final perm = _movePermutations[face];
-    if (perm == null) return this;
 
     int turns = 1;
     if (m.length > 1) {
@@ -88,11 +181,69 @@ class CubeState {
       }
     }
 
-    var cur = facelets;
-    for (var i = 0; i < turns; i++) {
-      cur = List<CubeColor>.generate(54, (idx) => cur[perm[idx]]);
+    // Middle-layer slice moves: M, E, S
+    if (['M', 'E', 'S'].contains(face)) {
+      final newList = List<CubeColor>.from(facelets);
+      for (var i = 0; i < turns; i++) {
+        _applySliceMoveCW(newList, face);
+      }
+      return CubeState(newList);
     }
-    return CubeState(cur);
+
+    if (!['U', 'D', 'R', 'L', 'F', 'B'].contains(face)) {
+      return this;
+    }
+
+    final newList = List<CubeColor>.from(facelets);
+    for (var i = 0; i < turns; i++) {
+      _applyBaseMoveCW(newList, face);
+    }
+    return CubeState(newList);
+  }
+
+  /// Middle-layer slice moves (no face rotation, only the inner 3 cells).
+  ///
+  /// M  – middle column, moves like L (L direction = up on front face)
+  /// E  – equatorial row, moves like D (D direction = right on front face)
+  /// S  – standing slice, moves like F
+  static void _applySliceMoveCW(List<CubeColor> list, String slice) {
+    switch (slice) {
+      case 'M':
+        // Middle column (col=1), same direction as L clockwise:
+        //   U col1 → F col1 → D col1 → B col1(reversed) → U col1
+        _cycleStrips(
+          list,
+          [1, 4, 7],     // U middle col (top to bot)
+          [18 + 1, 18 + 4, 18 + 7], // F middle col
+          [27 + 1, 27 + 4, 27 + 7], // D middle col (top to bot, parallel to L)
+          [45 + 7, 45 + 4, 45 + 1], // B middle col (reversed)
+        );
+        break;
+
+      case 'E':
+        // Equatorial row (row=1), same direction as D clockwise:
+        //   F row1 → R row1 → B row1 → L row1 → F row1
+        _cycleStrips(
+          list,
+          [18 + 3, 18 + 4, 18 + 5], // F middle row
+          [9 + 3,  9 + 4,  9 + 5],  // R middle row
+          [45 + 3, 45 + 4, 45 + 5], // B middle row
+          [36 + 3, 36 + 4, 36 + 5], // L middle row
+        );
+        break;
+
+      case 'S':
+        // Standing slice (between F and B), same direction as F clockwise:
+        //   U row1 → R col1 → D row1(rev) → L col1(rev) → U row1
+        _cycleStrips(
+          list,
+          [3, 4, 5],               // U middle row
+          [9 + 1, 9 + 4, 9 + 7],  // R middle col (top to bot)
+          [27 + 5, 27 + 4, 27 + 3], // D middle row (reversed)
+          [36 + 7, 36 + 4, 36 + 1], // L middle col (reversed)
+        );
+        break;
+    }
   }
 
   /// Applies a sequence of space-separated moves (e.g. "R U R' U'").

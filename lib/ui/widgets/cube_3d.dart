@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -34,10 +35,10 @@ class InteractiveCube3D extends StatefulWidget {
   });
 
   @override
-  State<InteractiveCube3D> createState() => _InteractiveCube3DState();
+  State<InteractiveCube3D> createState() => InteractiveCube3DState();
 }
 
-class _InteractiveCube3DState extends State<InteractiveCube3D>
+class InteractiveCube3DState extends State<InteractiveCube3D>
     with SingleTickerProviderStateMixin {
   // Camera view angles
   double _yaw = 0.65; // ~37 degrees
@@ -46,6 +47,7 @@ class _InteractiveCube3DState extends State<InteractiveCube3D>
   // Animation controller for face turns & snapping
   late AnimationController _turnController;
   late Animation<double> _turnAnimation;
+  Completer<void>? _currentMoveCompleter;
 
   // Active layer turn/snap state
   String? _animatingFace; // e.g. 'U', 'R', 'M', etc.
@@ -91,6 +93,9 @@ class _InteractiveCube3DState extends State<InteractiveCube3D>
           // Snap back feedback
           HapticFeedback.selectionClick();
         }
+        if (_currentMoveCompleter != null && !_currentMoveCompleter!.isCompleted) {
+          _currentMoveCompleter!.complete();
+        }
       }
     });
   }
@@ -105,6 +110,9 @@ class _InteractiveCube3DState extends State<InteractiveCube3D>
 
   @override
   void dispose() {
+    if (_currentMoveCompleter != null && !_currentMoveCompleter!.isCompleted) {
+      _currentMoveCompleter!.complete();
+    }
     _turnController.dispose();
     super.dispose();
   }
@@ -118,10 +126,18 @@ class _InteractiveCube3DState extends State<InteractiveCube3D>
 
   /// Triggers an animated face turn from code (e.g. "R", "U'", "F2").
   void animateMove(String move) {
-    if (_turnController.isAnimating || _activeDrag != null) return;
+    animateMoveAsync(move);
+  }
+
+  /// Asynchronously animates a single move and returns a [Future] that completes
+  /// when the turn animation finishes and state is applied.
+  Future<void> animateMoveAsync(String move, {Duration duration = const Duration(milliseconds: 220)}) {
+    if (_turnController.isAnimating || _activeDrag != null) {
+      return Future.value();
+    }
 
     final m = move.trim();
-    if (m.isEmpty) return;
+    if (m.isEmpty) return Future.value();
 
     int turns = 1;
     if (m.contains('2')) {
@@ -131,6 +147,8 @@ class _InteractiveCube3DState extends State<InteractiveCube3D>
     }
 
     final face = m[0].toUpperCase();
+    _currentMoveCompleter = Completer<void>();
+
     setState(() {
       _animatingFace = face;
       _preAnimState = widget.state;
@@ -139,8 +157,25 @@ class _InteractiveCube3DState extends State<InteractiveCube3D>
       _pendingMoveOnComplete = move;
     });
 
-    _turnController.duration = const Duration(milliseconds: 200);
+    _turnController.duration = duration;
     _turnController.forward(from: 0.0);
+
+    return _currentMoveCompleter!.future;
+  }
+
+  /// Asynchronously animates a sequence of moves one after another.
+  Future<void> animateMoves(
+    List<String> moves, {
+    Duration perMoveDuration = const Duration(milliseconds: 220),
+    Duration pauseBetweenMoves = const Duration(milliseconds: 50),
+  }) async {
+    for (final m in moves) {
+      if (!mounted) break;
+      await animateMoveAsync(m, duration: perMoveDuration);
+      if (pauseBetweenMoves > Duration.zero) {
+        await Future.delayed(pauseBetweenMoves);
+      }
+    }
   }
 
   void _cancelLayerDrag() {

@@ -19,14 +19,21 @@ class SolverScreen extends StatefulWidget {
 class _SolverScreenState extends State<SolverScreen> {
   final SolverService _solverService = SolverService();
   final StepValidatorController _validator = StepValidatorController();
+  final GlobalKey<InteractiveCube3DState> _cubeKey = GlobalKey<InteractiveCube3DState>();
+
   List<SolutionStep> _steps = [];
   List<CubeState> _stepStates = [];
   bool _isLoading = true;
   String? _solveError;
 
+  late CubeState _displayedState;
+  bool _isAnimating = false;
+  bool _isAutoPlaying = false;
+
   @override
   void initState() {
     super.initState();
+    _displayedState = widget.initialState;
     try {
       _steps = _solverService.solve(widget.initialState, widget.mode);
       _validator.initialize(widget.initialState.toSingmaster(), _steps);
@@ -40,7 +47,11 @@ class _SolverScreenState extends State<SolverScreen> {
       }
 
       _validator.addListener(() {
-        if (mounted) setState(() {});
+        if (mounted && !_isAnimating) {
+          setState(() {
+            _displayedState = _currentCubeState;
+          });
+        }
       });
     } catch (e) {
       // Solving happens synchronously over FFI; an unsolvable or malformed
@@ -50,12 +61,131 @@ class _SolverScreenState extends State<SolverScreen> {
     _isLoading = false;
   }
 
+  @override
+  void dispose() {
+    _isAutoPlaying = false;
+    super.dispose();
+  }
+
   CubeState get _currentCubeState {
     final idx = _validator.currentStepIndex;
     if (idx >= 0 && idx < _stepStates.length) {
       return _stepStates[idx];
     }
     return _stepStates.isNotEmpty ? _stepStates.last : widget.initialState;
+  }
+
+  List<String> _parseMoves(String notation) {
+    return notation.trim().split(RegExp(r'\s+')).where((s) => s.isNotEmpty).toList();
+  }
+
+  List<String> _invertMoves(List<String> moves) {
+    return moves.reversed.map((m) {
+      if (m.contains('2')) return m;
+      if (m.contains("'")) return m.replaceAll("'", "");
+      return "$m'";
+    }).toList();
+  }
+
+  Future<void> _onNextStep() async {
+    if (_isAnimating || _validator.isSolved) return;
+    final current = _validator.currentStep;
+    if (current == null) return;
+
+    final moves = _parseMoves(current.moveNotation);
+    if (moves.isEmpty) {
+      _validator.manualNext();
+      setState(() {
+        _displayedState = _currentCubeState;
+      });
+      return;
+    }
+
+    setState(() => _isAnimating = true);
+
+    try {
+      await _cubeKey.currentState?.animateMoves(moves);
+    } catch (_) {}
+
+    if (mounted) {
+      _validator.manualNext();
+      setState(() {
+        _displayedState = _currentCubeState;
+        _isAnimating = false;
+      });
+    }
+  }
+
+  Future<void> _onPrevStep() async {
+    if (_isAnimating || _validator.currentStepIndex <= 0) return;
+
+    final prevStepIndex = _validator.currentStepIndex - 1;
+    if (prevStepIndex < 0 || prevStepIndex >= _steps.length) return;
+
+    final prevStep = _steps[prevStepIndex];
+    final reverseMoves = _invertMoves(_parseMoves(prevStep.moveNotation));
+
+    setState(() => _isAnimating = true);
+
+    try {
+      await _cubeKey.currentState?.animateMoves(reverseMoves);
+    } catch (_) {}
+
+    if (mounted) {
+      _validator.manualPrevious();
+      setState(() {
+        _displayedState = _currentCubeState;
+        _isAnimating = false;
+      });
+    }
+  }
+
+  Future<void> _onReplayStep() async {
+    if (_isAnimating || _validator.isSolved) return;
+    final current = _validator.currentStep;
+    if (current == null) return;
+
+    final moves = _parseMoves(current.moveNotation);
+    if (moves.isEmpty) return;
+
+    setState(() => _isAnimating = true);
+
+    try {
+      // 1. Animate forward the current move(s)
+      await _cubeKey.currentState?.animateMoves(moves);
+      await Future.delayed(const Duration(milliseconds: 350));
+
+      // 2. Animate backward to return to start of this step
+      final reverseMoves = _invertMoves(moves);
+      await _cubeKey.currentState?.animateMoves(reverseMoves);
+    } catch (_) {}
+
+    if (mounted) {
+      setState(() {
+        _displayedState = _currentCubeState;
+        _isAnimating = false;
+      });
+    }
+  }
+
+  void _toggleAutoPlay() {
+    setState(() {
+      _isAutoPlaying = !_isAutoPlaying;
+    });
+    if (_isAutoPlaying) {
+      _runAutoPlay();
+    }
+  }
+
+  Future<void> _runAutoPlay() async {
+    while (_isAutoPlaying && mounted && !_validator.isSolved) {
+      await _onNextStep();
+      if (!_isAutoPlaying || !mounted || _validator.isSolved) break;
+      await Future.delayed(const Duration(milliseconds: 400));
+    }
+    if (mounted) {
+      setState(() => _isAutoPlaying = false);
+    }
   }
 
   @override
@@ -122,10 +252,16 @@ class _SolverScreenState extends State<SolverScreen> {
             Expanded(
               child: Center(
                 child: InteractiveCube3D(
-                  state: _currentCubeState,
+                  key: _cubeKey,
+                  state: _displayedState,
                   size: 260,
                   interactive: true,
                   allowFaceTurns: false,
+                  onMoveApplied: (move) {
+                    setState(() {
+                      _displayedState = _displayedState.applyMove(move);
+                    });
+                  },
                   highlightMove: current?.moveNotation,
                 ),
               ),
@@ -162,8 +298,12 @@ class _SolverScreenState extends State<SolverScreen> {
               StepGuideCard(
                 step: current,
                 totalSteps: _steps.length,
-                onNext: _validator.manualNext,
-                onPrev: _validator.manualPrevious,
+                onNext: _onNextStep,
+                onPrev: _onPrevStep,
+                onReplay: _onReplayStep,
+                isAnimating: _isAnimating,
+                isAutoPlaying: _isAutoPlaying,
+                onToggleAutoPlay: _toggleAutoPlay,
                 isAutoAdvance: _validator.autoAdvanceEnabled,
                 onToggleAutoAdvance: _validator.toggleAutoAdvance,
               ),
