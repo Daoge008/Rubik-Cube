@@ -361,14 +361,14 @@ void main() {
       expect(replayBtn.onPressed, isNull);
     });
 
-    testWidgets('StepGuideCard displays 完成复原 on final step and triggers onNext', (tester) async {
-      bool finishCalled = false;
+    testWidgets('StepGuideCard displays 完成复原 on final step and shows mnemonic', (tester) async {
+      bool nextCalled = false;
       final step = SolutionStep(
         stepIndex: 5,
-        moveNotation: "U2",
+        moveNotation: "R U R' U'",
         stageName: 'CFOP 顶层对齐',
-        visualHint: '最后一步转动顶层',
-        explanation: '完成复原',
+        visualHint: '测试提示',
+        explanation: '测试讲解',
       );
 
       await tester.pumpWidget(
@@ -377,9 +377,8 @@ void main() {
             body: StepGuideCard(
               step: step,
               totalSteps: 5,
-              onNext: () => finishCalled = true,
+              onNext: () => nextCalled = true,
               onPrev: () {},
-              onReplay: () {},
               isAutoAdvance: false,
               onToggleAutoAdvance: (_) {},
             ),
@@ -387,12 +386,14 @@ void main() {
         ),
       );
 
+      // Verify beginner elements
       expect(find.text('终步：完成复原'), findsOneWidget);
       expect(find.text('完成复原'), findsOneWidget);
-      expect(find.byIcon(Icons.check_circle_rounded), findsOneWidget);
+      expect(find.text('新手帮助'), findsOneWidget);
+      expect(find.textContaining('口诀：'), findsOneWidget);
 
       await tester.tap(find.text('完成复原'));
-      expect(finishCalled, isTrue);
+      expect(nextCalled, isTrue);
     });
   });
 }

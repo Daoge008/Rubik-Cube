@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../models/solution_step.dart';
+import '../../core/solver/move_explainer.dart';
+import 'beginner_guide_sheet.dart';
 
 class StepGuideCard extends StatelessWidget {
   final SolutionStep step;
@@ -12,9 +14,10 @@ class StepGuideCard extends StatelessWidget {
   final VoidCallback? onToggleAutoPlay;
   final bool isAutoAdvance;
   final ValueChanged<bool> onToggleAutoAdvance;
+  final VoidCallback? onHelp;
 
   const StepGuideCard({
-    Key? key,
+    super.key,
     required this.step,
     required this.totalSteps,
     required this.onNext,
@@ -25,7 +28,8 @@ class StepGuideCard extends StatelessWidget {
     this.onToggleAutoPlay,
     required this.isAutoAdvance,
     required this.onToggleAutoAdvance,
-  }) : super(key: key);
+    this.onHelp,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -34,11 +38,14 @@ class StepGuideCard extends StatelessWidget {
     final canNext = !isAnimating && !isAutoPlaying;
     final canReplay = !isAnimating && !isAutoPlaying && onReplay != null;
 
+    final mnemonic = MoveExplainer.translateSequence(step.moveNotation);
+    final explanations = MoveExplainer.explainSequence(step.moveNotation);
+
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFF1E1E2C).withOpacity(0.92),
+        color: const Color(0xFF1E1E2C).withOpacity(0.95),
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
           color: isLastStep ? const Color(0xFF00E676).withOpacity(0.5) : Colors.white12,
@@ -47,9 +54,10 @@ class StepGuideCard extends StatelessWidget {
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          // Header: Stage badge + help button + status / step counter
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -63,11 +71,43 @@ class StepGuideCard extends StatelessWidget {
                   isLastStep ? '终步：完成复原' : step.stageName,
                   style: TextStyle(
                     color: isLastStep ? const Color(0xFF00E676) : const Color(0xFF8C9EFF),
-                    fontSize: 13,
+                    fontSize: 12,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
               ),
+              const SizedBox(width: 8),
+              // Help button
+              InkWell(
+                onTap: () {
+                  if (onHelp != null) {
+                    onHelp!();
+                  } else {
+                    BeginnerGuideSheet.show(context);
+                  }
+                },
+                borderRadius: BorderRadius.circular(12),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.08),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.white24, width: 0.8),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.help_outline_rounded, color: Color(0xFF40C4FF), size: 14),
+                      SizedBox(width: 4),
+                      Text(
+                        '新手帮助',
+                        style: TextStyle(color: Color(0xFF40C4FF), fontSize: 11, fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const Spacer(),
               if (isAutoPlaying)
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -89,7 +129,7 @@ class StepGuideCard extends StatelessWidget {
                       ),
                       SizedBox(width: 6),
                       Text(
-                        '自动播放中',
+                        '演示中',
                         style: TextStyle(color: Color(0xFF00E676), fontSize: 11, fontWeight: FontWeight.bold),
                       ),
                     ],
@@ -100,23 +140,126 @@ class StepGuideCard extends StatelessWidget {
                   '转动中...',
                   style: TextStyle(color: Color(0xFFFFD600), fontSize: 12, fontWeight: FontWeight.bold),
                 ),
+              const SizedBox(width: 8),
               Text(
                 '第 ${step.stepIndex} / $totalSteps 步',
-                style: const TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.bold),
+                style: const TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.bold),
               ),
             ],
           ),
+
           const SizedBox(height: 12),
-          Text(
-            step.moveNotation,
-            style: TextStyle(
-              color: isAnimating ? const Color(0xFFFFAB00) : const Color(0xFFFFD600),
-              fontSize: 32,
-              fontWeight: FontWeight.w900,
-              letterSpacing: 2.0,
+
+          // Big Move Notation
+          Center(
+            child: Text(
+              step.moveNotation,
+              style: TextStyle(
+                color: isAnimating ? const Color(0xFFFFAB00) : const Color(0xFFFFD600),
+                fontSize: 32,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 2.0,
+              ),
             ),
           ),
+
+          // Beginner Mnemonic / Plain Chinese translation
+          if (mnemonic.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.black26,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.white10),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.record_voice_over_rounded, color: Color(0xFF8C9EFF), size: 16),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      '口诀：$mnemonic',
+                      style: const TextStyle(
+                        color: Color(0xFFE0E0E0),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+
+          // Visual move tokens breakdown (chips)
+          if (explanations.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 6,
+              runSpacing: 4,
+              alignment: WrapAlignment.center,
+              children: explanations.map((e) {
+                return Tooltip(
+                  message: e.detail,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF28283C),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: Colors.white12),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 8,
+                          height: 8,
+                          decoration: BoxDecoration(
+                            color: e.faceColor,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 5),
+                        Text(
+                          '${e.token}: ${e.action}',
+                          style: const TextStyle(color: Colors.white70, fontSize: 11),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+          ],
+
+          // Stage Hint / Explanation if available
+          if (step.visualHint.isNotEmpty && !step.visualHint.startsWith('执行标准单步转动:')) ...[
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: const Color(0xFF263238),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.lightbulb_outline_rounded, color: Color(0xFFFFD54F), size: 15),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      step.visualHint,
+                      style: const TextStyle(color: Color(0xFFFFECB3), fontSize: 11),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+
           const SizedBox(height: 12),
+
+          // Bottom Control Row
           Row(
             children: [
               Switch(

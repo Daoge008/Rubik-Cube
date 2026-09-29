@@ -5,12 +5,13 @@ import '../../core/solver/solver_service.dart';
 import '../../core/ar/step_validator.dart';
 import '../widgets/cube_3d.dart';
 import '../widgets/step_guide_card.dart';
+import '../widgets/beginner_guide_sheet.dart';
 
 class SolverScreen extends StatefulWidget {
   final CubeState initialState;
   final SolveMode mode;
 
-  const SolverScreen({Key? key, required this.initialState, required this.mode}) : super(key: key);
+  const SolverScreen({super.key, required this.initialState, required this.mode});
 
   @override
   State<SolverScreen> createState() => _SolverScreenState();
@@ -244,7 +245,15 @@ class _SolverScreenState extends State<SolverScreen> {
         title: Text(widget.mode == SolveMode.kociemba ? '最少步求解' : 'CFOP 教学'),
         backgroundColor: Colors.transparent,
         elevation: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.help_outline_rounded, color: Color(0xFF40C4FF)),
+            tooltip: '新手入门指南',
+            onPressed: () => BeginnerGuideSheet.show(context),
+          ),
+        ],
       ),
+
       body: SafeArea(
         child: Column(
           children: [
@@ -283,31 +292,13 @@ class _SolverScreenState extends State<SolverScreen> {
                     const SizedBox(height: 12),
                     const Text('魔方已成功复原！', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 16),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        if (_steps.isNotEmpty)
-                          OutlinedButton.icon(
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: Colors.white70,
-                              side: const BorderSide(color: Colors.white24),
-                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                            ),
-                            onPressed: _onPrevStep,
-                            icon: const Icon(Icons.arrow_back_ios_rounded, size: 14),
-                            label: const Text('回顾上一步'),
-                          ),
-                        if (_steps.isNotEmpty) const SizedBox(width: 12),
-                        ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF00E676),
-                            foregroundColor: Colors.black,
-                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                          ),
-                          onPressed: () => Navigator.pop(context),
-                          child: const Text('返回主页', style: TextStyle(fontWeight: FontWeight.bold)),
-                        ),
-                      ],
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF00E676),
+                        foregroundColor: Colors.black,
+                      ),
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('返回主页'),
                     ),
                   ],
                 ),
