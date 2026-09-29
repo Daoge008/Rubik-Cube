@@ -360,6 +360,41 @@ void main() {
       final replayBtn = tester.widget<IconButton>(find.widgetWithIcon(IconButton, Icons.replay_rounded));
       expect(replayBtn.onPressed, isNull);
     });
+
+    testWidgets('StepGuideCard displays 完成复原 on final step and triggers onNext', (tester) async {
+      bool finishCalled = false;
+      final step = SolutionStep(
+        stepIndex: 5,
+        moveNotation: "U2",
+        stageName: 'CFOP 顶层对齐',
+        visualHint: '最后一步转动顶层',
+        explanation: '完成复原',
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: StepGuideCard(
+              step: step,
+              totalSteps: 5,
+              onNext: () => finishCalled = true,
+              onPrev: () {},
+              onReplay: () {},
+              isAutoAdvance: false,
+              onToggleAutoAdvance: (_) {},
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('终步：完成复原'), findsOneWidget);
+      expect(find.text('完成复原'), findsOneWidget);
+      expect(find.byIcon(Icons.check_circle_rounded), findsOneWidget);
+
+      await tester.tap(find.text('完成复原'));
+      expect(finishCalled, isTrue);
+    });
   });
 }
+
 

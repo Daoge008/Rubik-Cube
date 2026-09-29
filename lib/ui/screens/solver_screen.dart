@@ -283,13 +283,31 @@ class _SolverScreenState extends State<SolverScreen> {
                     const SizedBox(height: 12),
                     const Text('魔方已成功复原！', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 16),
-                    ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF00E676),
-                        foregroundColor: Colors.black,
-                      ),
-                      onPressed: () => Navigator.pop(context),
-                      child: const Text('返回主页'),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        if (_steps.isNotEmpty)
+                          OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.white70,
+                              side: const BorderSide(color: Colors.white24),
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                            ),
+                            onPressed: _onPrevStep,
+                            icon: const Icon(Icons.arrow_back_ios_rounded, size: 14),
+                            label: const Text('回顾上一步'),
+                          ),
+                        if (_steps.isNotEmpty) const SizedBox(width: 12),
+                        ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF00E676),
+                            foregroundColor: Colors.black,
+                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                          ),
+                          onPressed: () => Navigator.pop(context),
+                          child: const Text('返回主页', style: TextStyle(fontWeight: FontWeight.bold)),
+                        ),
+                      ],
                     ),
                   ],
                 ),

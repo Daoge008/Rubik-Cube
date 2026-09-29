@@ -29,8 +29,9 @@ class StepGuideCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isLastStep = step.stepIndex >= totalSteps;
     final canPrev = !isAnimating && !isAutoPlaying && step.stepIndex > 1;
-    final canNext = !isAnimating && !isAutoPlaying && step.stepIndex < totalSteps;
+    final canNext = !isAnimating && !isAutoPlaying;
     final canReplay = !isAnimating && !isAutoPlaying && onReplay != null;
 
     return Container(
@@ -39,7 +40,10 @@ class StepGuideCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: const Color(0xFF1E1E2C).withOpacity(0.92),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white12, width: 1),
+        border: Border.all(
+          color: isLastStep ? const Color(0xFF00E676).withOpacity(0.5) : Colors.white12,
+          width: isLastStep ? 1.5 : 1,
+        ),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -50,13 +54,15 @@ class StepGuideCard extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF3F51B5).withOpacity(0.4),
+                  color: isLastStep
+                      ? const Color(0xFF00E676).withOpacity(0.2)
+                      : const Color(0xFF3F51B5).withOpacity(0.4),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
-                  step.stageName,
-                  style: const TextStyle(
-                    color: Color(0xFF8C9EFF),
+                  isLastStep ? '终步：完成复原' : step.stageName,
+                  style: TextStyle(
+                    color: isLastStep ? const Color(0xFF00E676) : const Color(0xFF8C9EFF),
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
                   ),
@@ -146,13 +152,30 @@ class StepGuideCard extends StatelessWidget {
                   tooltip: isAutoPlaying ? '暂停演示' : '连续演示',
                   onPressed: isAnimating && !isAutoPlaying ? null : onToggleAutoPlay,
                 ),
-              // Next step
-              IconButton(
-                icon: const Icon(Icons.arrow_forward_ios_rounded, size: 20),
-                color: canNext ? Colors.white : Colors.white24,
-                tooltip: '下一步',
-                onPressed: canNext ? onNext : null,
-              ),
+              // Next step or Finish
+              if (isLastStep)
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF00E676),
+                    foregroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    minimumSize: const Size(80, 36),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                  icon: const Icon(Icons.check_circle_rounded, size: 18),
+                  label: const Text(
+                    '完成复原',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                  ),
+                  onPressed: canNext ? onNext : null,
+                )
+              else
+                IconButton(
+                  icon: const Icon(Icons.arrow_forward_ios_rounded, size: 20),
+                  color: canNext ? Colors.white : Colors.white24,
+                  tooltip: '下一步',
+                  onPressed: canNext ? onNext : null,
+                ),
             ],
           ),
         ],
