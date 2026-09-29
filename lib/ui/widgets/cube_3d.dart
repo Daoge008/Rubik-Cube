@@ -88,7 +88,6 @@ class InteractiveCube3DState extends State<InteractiveCube3D>
         if (move != null) {
           widget.onMoveApplied?.call(move);
           HapticFeedback.lightImpact();
-          CubeSoundService.instance.playClick();
         } else {
           // Snap back feedback
           HapticFeedback.selectionClick();
@@ -158,6 +157,7 @@ class InteractiveCube3DState extends State<InteractiveCube3D>
     });
 
     _turnController.duration = duration;
+    CubeSoundService.instance.playGearTurn();
     _turnController.forward(from: 0.0);
 
     return _currentMoveCompleter!.future;
@@ -200,6 +200,10 @@ class InteractiveCube3DState extends State<InteractiveCube3D>
 
     final distance = (toAngle - fromAngle).abs();
     final durationMs = (200 * (distance / (math.pi / 2))).clamp(90, 240).toInt();
+
+    if (moveOnComplete != null) {
+      CubeSoundService.instance.playGearTurn();
+    }
 
     _turnController.duration = Duration(milliseconds: durationMs);
     _turnController.forward(from: 0.0);
