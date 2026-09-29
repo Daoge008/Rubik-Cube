@@ -718,124 +718,87 @@ class _Cube3DPainter extends CustomPainter {
     }
   }
 
-  /// Renders a single cubie face:
-  ///   • dark plastic base tile (defines seams/grooves)
-  ///   • dark rounded body (per-face lighting + radial pillow gradient)
-  ///   • inset oval / rounded sticker
-  ///   • subtle gloss sheen on the sticker
-  void _drawCubieCell(Canvas canvas, _ProjectedQuad q, String? hlFace) {
-    final pts = q.points;
-    final lf = q.lighting; // 0.72 – 1.00
+  /// Computes the 4 individual corner radii [r0, r1, r2, r3] for a cubie facet at (row, col).
+  ///
+  /// Corner indexing in quad points:
+  ///   0: top-left (-u, -v)
+  ///   1: top-right (+u, -v)
+  ///   2: bottom-right (+u, +v)
+  ///   3: bottom-left (-u, +v)
+  ///
+  /// Distinct geometry:
+  ///   • Center (1,1): all 4 corners have large rounding (squircle pillow cap).
+  ///   • Edge (0,1; 1,0; 1,2; 2,1): inner 2 corners facing center have large rounding;
+  ///     outer 2 corners have small crisp rounding.
+  ///   • Corner (0,0; 0,2; 2,0; 2,2): outer cube tip and inner center-facing corner
+  ///     have medium rounding; side seams have small crisp rounding.
+  static List<double> _getCornerRadii(int row, int col, double cellPx) {
+    final rLarge = cellPx * 0.28;  // Large round for center piece & inner edge corners
+    final rMedium = cellPx * 0.18; // Medium round for outer cube corner & inner corner corner
+    final rSmall = cellPx * 0.065; // Small crisp round for outer borders & straight seams
 
-    // Approximate cell width in screen pixels (avg projected edge length)
-    double totalEdge = 0;
-    for (int i = 0; i < 4; i++) {
-      totalEdge += (pts[(i + 1) % 4] - pts[i]).distance;
+    // ── 1. Center piece (1, 1) ────────────────────────────────────────────────
+    if (row == 1 && col == 1) {
+      return [rLarge, rLarge, rLarge, rLarge];
     }
-    final cellPx = totalEdge / 4;
 
-    // ── 1. Black plastic base tile (defines the dark seams/grooves around each cubie) ──
-    final basePath = _roundedQuadPath(pts, cellPx * 0.10);
-    canvas.drawPath(basePath, Paint()..color = const Color(0xFF0A0A0A));
-
-    // ── 2. Groove gap between cubies (narrow so cells look tight/realistic) ──
-    final bodyPts = _insetQuad(pts, cellPx * 0.045);
-    final bodyPath = _roundedQuadPath(bodyPts, cellPx * 0.18);
-
-    // ── 2. Cubie body: dark gray with a radial "pillow" gradient ─────────────
-    final bodyCenter = Offset(
-      (bodyPts[0].dx + bodyPts[1].dx + bodyPts[2].dx + bodyPts[3].dx) / 4,
-      (bodyPts[0].dy + bodyPts[1].dy + bodyPts[2].dy + bodyPts[3].dy) / 4,
-    );
-    final bodyRadius = cellPx * 0.46;
-
-    // Lighting: top face ~78, front ~65, side ~55 — always clearly above #0A0A0A
-    // lf ranges 0.72-1.00; dark edge of gradient 48-78, highlight peak 80-110
-    final darkVal  = (48 + (lf - 0.72) / 0.28 * 30).round().clamp(48, 78);
-    final lightVal = (darkVal + 32).clamp(0, 120);
-
-    canvas.drawPath(
-      bodyPath,
-      Paint()
-        ..shader = RadialGradient(
-          center: const Alignment(-0.20, -0.30),
-          radius: 1.20,
-          colors: [
-            Color.fromARGB(255, lightVal, lightVal, lightVal),
-            Color.fromARGB(255, darkVal,  darkVal,  darkVal),
-          ],
-        ).createShader(
-          Rect.fromCircle(center: bodyCenter, radius: bodyRadius),
-        ),
-    );
-
-    // ── 3. Coloured sticker: inset oval (very round corners) ─────────────────
-    final stickerPts = _insetQuad(bodyPts, cellPx * 0.16);
-    final stickerPath = _stickerPath(stickerPts);
-
-    final base = q.color.displayColor;
-    // Keep stickers vivid; only mild darkening for less-lit faces
-    final sf = 0.88 + 0.12 * lf;
-    canvas.drawPath(
-      stickerPath,
-      Paint()
-        ..color = Color.fromARGB(
-          255,
-          (base.r * 255 * sf).round().clamp(0, 255),
-          (base.g * 255 * sf).round().clamp(0, 255),
-          (base.b * 255 * sf).round().clamp(0, 255),
-        )
-        ..style = PaintingStyle.fill,
-    );
-
-    // Gloss sheen overlay (top-left brightspot)
-    final scx = (stickerPts[0].dx + stickerPts[1].dx +
-                 stickerPts[2].dx + stickerPts[3].dx) / 4;
-    final scy = (stickerPts[0].dy + stickerPts[1].dy +
-                 stickerPts[2].dy + stickerPts[3].dy) / 4;
-    canvas.drawPath(
-      stickerPath,
-      Paint()
-        ..shader = const RadialGradient(
-          center: Alignment(-0.15, -0.50),
-          radius: 1.30,
-          colors: [Color(0x55FFFFFF), Color(0x00FFFFFF)],
-        ).createShader(
-          Rect.fromCircle(center: Offset(scx, scy), radius: cellPx * 0.25),
-        ),
-    );
-
-    // ── 4. Move-highlight outline ─────────────────────────────────────────────
-    final faceLetter = ['U', 'R', 'F', 'D', 'L', 'B'][q.faceIndex];
-    if (hlFace == faceLetter) {
-      canvas.drawPath(
-        bodyPath,
-        Paint()
-          ..color = const Color(0xFF00E676).withValues(alpha: 0.78)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 2.6,
-      );
+    // ── 2. Edge pieces ────────────────────────────────────────────────────────
+    // Top edge (0, 1): corners 2 & 3 face the center (+v direction)
+    if (row == 0 && col == 1) {
+      return [rSmall, rSmall, rLarge, rLarge];
     }
+    // Bottom edge (2, 1): corners 0 & 1 face the center (-v direction)
+    if (row == 2 && col == 1) {
+      return [rLarge, rLarge, rSmall, rSmall];
+    }
+    // Left edge (1, 0): corners 1 & 2 face the center (+u direction)
+    if (row == 1 && col == 0) {
+      return [rSmall, rLarge, rLarge, rSmall];
+    }
+    // Right edge (1, 2): corners 0 & 3 face the center (-u direction)
+    if (row == 1 && col == 2) {
+      return [rLarge, rSmall, rSmall, rLarge];
+    }
+
+    // ── 3. Corner pieces ──────────────────────────────────────────────────────
+    // Top-left corner (0, 0):
+    //   0: outer cube tip (medium)
+    //   1: top seam (small)
+    //   2: inner corner pointing to center (medium)
+    //   3: left seam (small)
+    if (row == 0 && col == 0) {
+      return [rMedium, rSmall, rMedium, rSmall];
+    }
+    // Top-right corner (0, 2):
+    //   0: top seam (small)
+    //   1: outer cube tip (medium)
+    //   2: right seam (small)
+    //   3: inner corner pointing to center (medium)
+    if (row == 0 && col == 2) {
+      return [rSmall, rMedium, rSmall, rMedium];
+    }
+    // Bottom-right corner (2, 2):
+    //   0: inner corner pointing to center (medium)
+    //   1: right seam (small)
+    //   2: outer cube tip (medium)
+    //   3: bottom seam (small)
+    if (row == 2 && col == 2) {
+      return [rMedium, rSmall, rMedium, rSmall];
+    }
+    // Bottom-left corner (2, 0):
+    //   0: left seam (small)
+    //   1: inner corner pointing to center (medium)
+    //   2: bottom seam (small)
+    //   3: outer cube tip (medium)
+    if (row == 2 && col == 0) {
+      return [rSmall, rMedium, rSmall, rMedium];
+    }
+
+    return [rSmall, rSmall, rSmall, rSmall];
   }
 
-  // ── Geometry helpers ────────────────────────────────────────────────────────
-
-  /// Moves each corner of [pts] toward the quad's centre by [inset] pixels.
-  static List<Offset> _insetQuad(List<Offset> pts, double inset) {
-    final cx = (pts[0].dx + pts[1].dx + pts[2].dx + pts[3].dx) / 4;
-    final cy = (pts[0].dy + pts[1].dy + pts[2].dy + pts[3].dy) / 4;
-    return pts.map((p) {
-      final dx = cx - p.dx;
-      final dy = cy - p.dy;
-      final len = math.sqrt(dx * dx + dy * dy);
-      if (len < 1e-6) return p;
-      final t = math.min(inset, len * 0.48);
-      return Offset(p.dx + dx / len * t, p.dy + dy / len * t);
-    }).toList();
-  }
-
-  /// Quad path with Bézier-rounded corners of radius [r].
-  static Path _roundedQuadPath(List<Offset> pts, double r) {
+  /// Quad path with per-corner Bézier-rounded corners of radii [radii = [r0, r1, r2, r3]].
+  static Path _roundedQuadPathWithRadii(List<Offset> pts, List<double> radii) {
     final path = Path();
     bool started = false;
     for (int i = 0; i < 4; i++) {
@@ -847,7 +810,8 @@ class _Cube3DPainter extends CustomPainter {
       final lp = toPrev.distance;
       final ln = toNext.distance;
       if (lp < 1e-6 || ln < 1e-6) continue;
-      final cr = math.min(r, math.min(lp, ln) * 0.45);
+      final r = radii[i];
+      final cr = math.min(r, math.min(lp, ln) * 0.48);
       final p1 = Offset(curr.dx + toPrev.dx / lp * cr,
                         curr.dy + toPrev.dy / lp * cr);
       final p2 = Offset(curr.dx + toNext.dx / ln * cr,
@@ -864,15 +828,191 @@ class _Cube3DPainter extends CustomPainter {
     return path;
   }
 
-  /// Very-rounded (≈ oval) sticker path inscribed in [pts].
-  /// Corner radius ≈ 44% of the shortest projected edge → almost circular.
-  static Path _stickerPath(List<Offset> pts) {
-    double minEdge = double.infinity;
+  /// Renders a single cubie face:
+  ///   • dark plastic base tile (defines seams/grooves)
+  ///   • full-coverage colored tile with differentiated corner roundings (center, edge, corner)
+  ///   • subtle 3D lighting + convex pillow shading
+  ///   • soft gloss sheen
+  ///   • center logo badge for the white center piece (MoYu style)
+  void _drawCubieCell(Canvas canvas, _ProjectedQuad q, String? hlFace) {
+    final pts = q.points;
+    final lf = q.lighting; // 0.72 – 1.00
+
+    // Approximate cell width in screen pixels (avg projected edge length)
+    double totalEdge = 0;
     for (int i = 0; i < 4; i++) {
-      final d = (pts[(i + 1) % 4] - pts[i]).distance;
-      if (d < minEdge) minEdge = d;
+      totalEdge += (pts[(i + 1) % 4] - pts[i]).distance;
     }
-    return _roundedQuadPath(pts, minEdge * 0.44);
+    final cellPx = totalEdge / 4;
+
+    final radii = _getCornerRadii(q.row, q.col, cellPx);
+
+    // ── 1. Black plastic base tile (defines the dark seams/grooves around each cubie) ──
+    final baseRadii = radii.map((r) => r + cellPx * 0.015).toList();
+    final basePath = _roundedQuadPathWithRadii(pts, baseRadii);
+    canvas.drawPath(basePath, Paint()..color = const Color(0xFF0C0C0C));
+
+    // ── 2. Full-coverage colored tile with distinct corner roundings ──────────
+    final tilePts = _insetQuad(pts, cellPx * 0.038);
+    final tileRadii = radii.map((r) => math.max(0.0, r - cellPx * 0.015)).toList();
+    final tilePath = _roundedQuadPathWithRadii(tilePts, tileRadii);
+
+    final tileCenter = Offset(
+      (tilePts[0].dx + tilePts[1].dx + tilePts[2].dx + tilePts[3].dx) / 4,
+      (tilePts[0].dy + tilePts[1].dy + tilePts[2].dy + tilePts[3].dy) / 4,
+    );
+
+    final base = q.color.displayColor;
+    final sf = 0.88 + 0.12 * lf;
+    final colR = (base.r * 255 * sf).round().clamp(0, 255);
+    final colG = (base.g * 255 * sf).round().clamp(0, 255);
+    final colB = (base.b * 255 * sf).round().clamp(0, 255);
+    final tileColor = Color.fromARGB(255, colR, colG, colB);
+
+    // Subtle 3D convex shading gradient (pillow feel matching speedcube reference)
+    final highlightCol = Color.fromARGB(
+      255,
+      math.min(255, colR + (36 * lf).round()),
+      math.min(255, colG + (36 * lf).round()),
+      math.min(255, colB + (36 * lf).round()),
+    );
+    final shadowCol = Color.fromARGB(
+      255,
+      math.max(0, colR - (26 * (1.1 - lf)).round()),
+      math.max(0, colG - (26 * (1.1 - lf)).round()),
+      math.max(0, colB - (26 * (1.1 - lf)).round()),
+    );
+
+    canvas.drawPath(
+      tilePath,
+      Paint()
+        ..shader = RadialGradient(
+          center: const Alignment(-0.25, -0.35),
+          radius: 1.25,
+          colors: [highlightCol, tileColor, shadowCol],
+          stops: const [0.0, 0.65, 1.0],
+        ).createShader(
+          Rect.fromCircle(center: tileCenter, radius: cellPx * 0.55),
+        ),
+    );
+
+    // Subtle gloss sheen
+    canvas.drawPath(
+      tilePath,
+      Paint()
+        ..shader = const RadialGradient(
+          center: Alignment(-0.25, -0.45),
+          radius: 1.10,
+          colors: [Color(0x32FFFFFF), Color(0x00FFFFFF)],
+        ).createShader(
+          Rect.fromCircle(center: tileCenter, radius: cellPx * 0.40),
+        ),
+    );
+
+    // If center piece on the white face: draw stylized "魔方教室" center emblem
+    if (q.color == CubeColor.white && q.row == 1 && q.col == 1) {
+      _drawCenterLogoBadge(canvas, tileCenter, cellPx * 0.44);
+    }
+
+    // ── 3. Move-highlight outline ─────────────────────────────────────────────
+    final faceLetter = ['U', 'R', 'F', 'D', 'L', 'B'][q.faceIndex];
+    if (hlFace == faceLetter) {
+      canvas.drawPath(
+        tilePath,
+        Paint()
+          ..color = const Color(0xFF00E676).withValues(alpha: 0.85)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.8,
+      );
+    }
+  }
+
+  /// Draws a professional speedcube center emblem (MoYu style) on the white center cap.
+  static void _drawCenterLogoBadge(Canvas canvas, Offset center, double size) {
+    final badgeW = size * 0.72;
+    final badgeH = size * 0.72;
+    final badgeRect = RRect.fromRectAndRadius(
+      Rect.fromCenter(center: center, width: badgeW, height: badgeH),
+      Radius.circular(size * 0.14),
+    );
+
+    // Badge background and border
+    canvas.drawRRect(badgeRect, Paint()..color = Colors.white);
+    canvas.drawRRect(
+      badgeRect,
+      Paint()
+        ..color = const Color(0xFF1E1E1E)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.0,
+    );
+
+    // Top block: blue "魔方"
+    final topRect = Rect.fromCenter(
+      center: Offset(center.dx, center.dy - badgeH * 0.22),
+      width: badgeW * 0.80,
+      height: badgeH * 0.36,
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(topRect, const Radius.circular(2)),
+      Paint()..color = const Color(0xFF0288D1),
+    );
+
+    // Bottom block: red "教室"
+    final botRect = Rect.fromCenter(
+      center: Offset(center.dx, center.dy + badgeH * 0.18),
+      width: badgeW * 0.80,
+      height: badgeH * 0.36,
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(botRect, const Radius.circular(2)),
+      Paint()..color = const Color(0xFFD32F2F),
+    );
+
+    // Text: "魔方"
+    final tp1 = TextPainter(
+      text: const TextSpan(
+        text: '魔方',
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: 7.5,
+          fontWeight: FontWeight.w900,
+          letterSpacing: 0.5,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    tp1.paint(canvas, Offset(center.dx - tp1.width / 2, center.dy - badgeH * 0.22 - tp1.height / 2));
+
+    // Text: "教室"
+    final tp2 = TextPainter(
+      text: const TextSpan(
+        text: '教室',
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: 7.5,
+          fontWeight: FontWeight.w900,
+          letterSpacing: 0.5,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    tp2.paint(canvas, Offset(center.dx - tp2.width / 2, center.dy + badgeH * 0.18 - tp2.height / 2));
+  }
+
+  // ── Geometry helpers ────────────────────────────────────────────────────────
+
+  /// Moves each corner of [pts] toward the quad's centre by [inset] pixels.
+  static List<Offset> _insetQuad(List<Offset> pts, double inset) {
+    final cx = (pts[0].dx + pts[1].dx + pts[2].dx + pts[3].dx) / 4;
+    final cy = (pts[0].dy + pts[1].dy + pts[2].dy + pts[3].dy) / 4;
+    return pts.map((p) {
+      final dx = cx - p.dx;
+      final dy = cy - p.dy;
+      final len = math.sqrt(dx * dx + dy * dy);
+      if (len < 1e-6) return p;
+      final t = math.min(inset, len * 0.48);
+      return Offset(p.dx + dx / len * t, p.dy + dy / len * t);
+    }).toList();
   }
 
   @override
