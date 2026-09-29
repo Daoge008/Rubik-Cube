@@ -39,6 +39,92 @@ void main() {
       await tester.pumpAndSettle();
     });
 
+    testWidgets('InteractiveCube3D snaps back to original position on small swipe', (tester) async {
+      final state = CubeState.solved();
+      final moves = <String>[];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Center(
+              child: InteractiveCube3D(
+                state: state,
+                size: 260,
+                onMoveApplied: (m) => moves.add(m),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      final center = tester.getCenter(find.byType(InteractiveCube3D));
+      // Start touch slightly below center (on Front face)
+      final gesture = await tester.startGesture(center + const Offset(-20, 20));
+      // Slide a tiny amount (only 12 px)
+      await gesture.moveBy(const Offset(12, 0));
+      await tester.pump(const Duration(milliseconds: 50));
+      // Release finger
+      await gesture.up();
+      // Wait for snap-back animation to finish
+      await tester.pumpAndSettle();
+
+      // No move should have been applied because it snapped back!
+      expect(moves, isEmpty);
+    });
+
+    testWidgets('InteractiveCube3D completes turn on sufficient swipe', (tester) async {
+      final state = CubeState.solved();
+      final moves = <String>[];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Center(
+              child: InteractiveCube3D(
+                state: state,
+                size: 260,
+                onMoveApplied: (m) => moves.add(m),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      final topLeft = tester.getTopLeft(find.byType(InteractiveCube3D));
+      // In local coordinates, (160, 110) is on the Front face of the 3D cube
+      // Drag right
+      await tester.dragFrom(topLeft + const Offset(160, 110), const Offset(70, 0));
+      await tester.pumpAndSettle();
+      expect(moves, isNotEmpty);
+      final moveRight = moves.first;
+
+      // Re-test dragging left on another cube to verify inverse move
+      final movesLeft = <String>[];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Center(
+              child: InteractiveCube3D(
+                state: state,
+                size: 260,
+                onMoveApplied: (m) => movesLeft.add(m),
+              ),
+            ),
+          ),
+        ),
+      );
+      final topLeft2 = tester.getTopLeft(find.byType(InteractiveCube3D));
+      await tester.dragFrom(topLeft2 + const Offset(190, 110), const Offset(-70, 0));
+      await tester.pumpAndSettle();
+      expect(movesLeft, isNotEmpty);
+      final moveLeft = movesLeft.first;
+
+      // Moving right and left must be inverses of each other (e.g. E vs E')
+      expect(
+        (moveRight == "${moveLeft}'") || (moveLeft == "${moveRight}'"),
+        isTrue,
+        reason: 'Swiping opposite directions must produce inverse moves (got right=$moveRight, left=$moveLeft)',
+      );
+    });
+
     testWidgets('CubeSimulatorScreen shows 3D cube and random scramble button', (tester) async {
       await tester.pumpWidget(
         const MaterialApp(

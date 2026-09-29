@@ -43,18 +43,23 @@ class _InteractiveCube3DState extends State<InteractiveCube3D>
   double _yaw = 0.65; // ~37 degrees
   double _pitch = -0.45; // ~-26 degrees
 
-  // Animation controller for face turns
+  // Animation controller for face turns & snapping
   late AnimationController _turnController;
   late Animation<double> _turnAnimation;
-  String? _animatingMove;
-  double _animatingTargetAngle = 0;
+
+  // Active layer turn/snap state
+  String? _animatingFace; // e.g. 'U', 'R', 'M', etc.
+  double _snapStartAngle = 0.0;
+  double _snapTargetAngle = 0.0;
+  String? _pendingMoveOnComplete;
   CubeState? _preAnimState;
 
-  // Touch tracking
+  // Touch tracking for real-time layer drag
   Offset? _panStartPos;
   _HitTestResult? _panHit;
-  bool _isTurnTriggered = false;
   bool _isCameraRotating = false;
+  _ActiveLayerDrag? _activeDrag;
+  double _dragAngle = 0.0;
 
   @override
   void initState() {
@@ -65,20 +70,37 @@ class _InteractiveCube3DState extends State<InteractiveCube3D>
     );
     _turnAnimation = CurvedAnimation(
       parent: _turnController,
-      curve: Curves.easeInOutCubic,
+      curve: Curves.easeOutCubic,
     );
     _turnController.addStatusListener((status) {
       if (status == AnimationStatus.completed) {
-        if (_animatingMove != null && _preAnimState != null) {
-          final move = _animatingMove!;
-          setState(() {
-            _animatingMove = null;
-            _preAnimState = null;
-          });
+        final move = _pendingMoveOnComplete;
+        setState(() {
+          _animatingFace = null;
+          _dragAngle = 0.0;
+          _snapStartAngle = 0.0;
+          _snapTargetAngle = 0.0;
+          _pendingMoveOnComplete = null;
+          _preAnimState = null;
+        });
+        if (move != null) {
           widget.onMoveApplied?.call(move);
+          HapticFeedback.lightImpact();
+          CubeSoundService.instance.playClick();
+        } else {
+          // Snap back feedback
+          HapticFeedback.selectionClick();
         }
       }
     });
+  }
+
+  @override
+  void didUpdateWidget(InteractiveCube3D oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.state != widget.state && !_turnController.isAnimating && _activeDrag == null) {
+      _preAnimState = null;
+    }
   }
 
   @override
@@ -94,9 +116,9 @@ class _InteractiveCube3DState extends State<InteractiveCube3D>
     });
   }
 
-  /// Triggers an animated face turn (e.g. "R", "U'", "F2").
+  /// Triggers an animated face turn from code (e.g. "R", "U'", "F2").
   void animateMove(String move) {
-    if (_turnController.isAnimating) return;
+    if (_turnController.isAnimating || _activeDrag != null) return;
 
     final m = move.trim();
     if (m.isEmpty) return;
@@ -108,15 +130,100 @@ class _InteractiveCube3DState extends State<InteractiveCube3D>
       turns = -1;
     }
 
+    final face = m[0].toUpperCase();
     setState(() {
-      _animatingMove = move;
-      _animatingTargetAngle = turns * math.pi / 2;
+      _animatingFace = face;
       _preAnimState = widget.state;
+      _snapStartAngle = 0.0;
+      _snapTargetAngle = turns * (math.pi / 2);
+      _pendingMoveOnComplete = move;
     });
 
+    _turnController.duration = const Duration(milliseconds: 200);
     _turnController.forward(from: 0.0);
-    HapticFeedback.lightImpact();
-    CubeSoundService.instance.playClick();
+  }
+
+  void _cancelLayerDrag() {
+    if (_activeDrag != null || _dragAngle != 0.0) {
+      setState(() {
+        _activeDrag = null;
+        _dragAngle = 0.0;
+        _animatingFace = null;
+        _preAnimState = null;
+      });
+    }
+  }
+
+  void _snapToAngle({
+    required double fromAngle,
+    required double toAngle,
+    required String? moveOnComplete,
+  }) {
+    _snapStartAngle = fromAngle;
+    _snapTargetAngle = toAngle;
+    _pendingMoveOnComplete = moveOnComplete;
+
+    final distance = (toAngle - fromAngle).abs();
+    final durationMs = (200 * (distance / (math.pi / 2))).clamp(90, 240).toInt();
+
+    _turnController.duration = Duration(milliseconds: durationMs);
+    _turnController.forward(from: 0.0);
+  }
+
+  Offset _computeScreenTangent(int faceIndex, int row, int col, String layer) {
+    final center3d = _getStickerCenter(faceIndex, row, col);
+    const dTheta = 0.05;
+    final rot3d = _rotateByFace(center3d, layer, dTheta);
+
+    final center = Offset(widget.size / 2, widget.size / 2);
+    final scale = widget.size / 5.2;
+    const camDist = 5.5;
+
+    final p0 = _projectPoint(center3d, _yaw, _pitch, center, scale, camDist);
+    final pRot = _projectPoint(rot3d, _yaw, _pitch, center, scale, camDist);
+
+    return (pRot - p0) * (1.0 / dTheta);
+  }
+
+  _ActiveLayerDrag? _initLayerDrag(_HitTestResult hit, Offset delta) {
+    final faceIndex = hit.faceIndex;
+    final row = hit.row;
+    final col = hit.col;
+
+    final (rowLayer, colLayer) = _getCandidateLayers(faceIndex, row, col);
+
+    final tRow = _computeScreenTangent(faceIndex, row, col, rowLayer);
+    final tCol = _computeScreenTangent(faceIndex, row, col, colLayer);
+
+    final lenRow = tRow.distance;
+    final lenCol = tCol.distance;
+
+    if (lenRow < 1e-4 && lenCol < 1e-4) return null;
+
+    final projRow = lenRow > 1e-4
+        ? (delta.dx * tRow.dx + delta.dy * tRow.dy).abs() / lenRow
+        : 0.0;
+    final projCol = lenCol > 1e-4
+        ? (delta.dx * tCol.dx + delta.dy * tCol.dy).abs() / lenCol
+        : 0.0;
+
+    if (projRow >= projCol) {
+      return _ActiveLayerDrag(
+        faceIndex: faceIndex,
+        row: row,
+        col: col,
+        layer: rowLayer,
+        screenTangent: tRow,
+      );
+    } else {
+      return _ActiveLayerDrag(
+        faceIndex: faceIndex,
+        row: row,
+        col: col,
+        layer: colLayer,
+        screenTangent: tCol,
+      );
+    }
   }
 
   void _onScaleStart(ScaleStartDetails details) {
@@ -125,22 +232,22 @@ class _InteractiveCube3DState extends State<InteractiveCube3D>
     // Dual-finger drag: rotate whole cube (camera)
     if (details.pointerCount >= 2) {
       _isCameraRotating = true;
-      _panHit = null;
-      _isTurnTriggered = false;
+      _cancelLayerDrag();
       return;
     }
 
     _panStartPos = details.localFocalPoint;
-    _isTurnTriggered = false;
     _isCameraRotating = false;
+    _activeDrag = null;
+    _dragAngle = 0.0;
 
     if (widget.allowFaceTurns && !_turnController.isAnimating) {
       _panHit = _hitTest(details.localFocalPoint);
+      if (_panHit == null) {
+        _isCameraRotating = true;
+      }
     } else {
       _panHit = null;
-    }
-
-    if (_panHit == null) {
       _isCameraRotating = true;
     }
   }
@@ -150,6 +257,10 @@ class _InteractiveCube3DState extends State<InteractiveCube3D>
 
     // Dual fingers: ALWAYS rotate entire cube (camera)
     if (details.pointerCount >= 2) {
+      if (_activeDrag != null) {
+        _cancelLayerDrag();
+      }
+      _isCameraRotating = true;
       setState(() {
         _yaw += details.focalPointDelta.dx * 0.012;
         _pitch = (_pitch + details.focalPointDelta.dy * 0.012).clamp(-1.35, 1.35);
@@ -157,7 +268,7 @@ class _InteractiveCube3DState extends State<InteractiveCube3D>
       return;
     }
 
-    // Single finger in blank space / edge area: camera rotate
+    // Single finger in camera rotation mode
     if (_isCameraRotating || _panHit == null) {
       setState(() {
         _yaw += details.focalPointDelta.dx * 0.012;
@@ -166,24 +277,80 @@ class _InteractiveCube3DState extends State<InteractiveCube3D>
       return;
     }
 
-    // Single finger on cube: trigger face/slice turn
-    if (!_isTurnTriggered && widget.allowFaceTurns && _panStartPos != null) {
-      final delta = details.localFocalPoint - _panStartPos!;
-      if (delta.distance > 16) {
-        final move = _resolveMoveFromSwipe(_panHit!, delta);
-        if (move != null) {
-          _isTurnTriggered = true;
-          animateMove(move);
+    // Single finger on cube facet:
+    final delta = details.localFocalPoint - _panStartPos!;
+
+    if (_activeDrag == null) {
+      if (delta.distance > 8.0) {
+        final drag = _initLayerDrag(_panHit!, delta);
+        if (drag == null) {
+          _isCameraRotating = true;
+          return;
         }
+        _activeDrag = drag;
+        _preAnimState = widget.state;
+      } else {
+        return;
       }
+    }
+
+    if (_activeDrag != null) {
+      final drag = _activeDrag!;
+      // Projection of swipe onto screen tangent vector
+      final rawAngle = (delta.dx * drag.screenTangent.dx + delta.dy * drag.screenTangent.dy) / drag.tNormSq;
+      final clampedAngle = rawAngle.clamp(-1.83, 1.83);
+
+      setState(() {
+        _dragAngle = clampedAngle;
+        _animatingFace = drag.layer;
+      });
     }
   }
 
   void _onScaleEnd(ScaleEndDetails details) {
     if (!widget.interactive) return;
 
-    // Check if it was a quick tap
-    if (!_isTurnTriggered && !_isCameraRotating && _panHit != null && _panStartPos != null) {
+    if (_activeDrag != null) {
+      final drag = _activeDrag!;
+      final currentAngle = _dragAngle;
+      _activeDrag = null;
+
+      // Project release velocity onto tangent direction
+      final vel = details.velocity.pixelsPerSecond;
+      final tangentLen = math.sqrt(drag.tNormSq);
+      final velProj = (vel.dx * drag.screenTangent.dx + vel.dy * drag.screenTangent.dy) / tangentLen;
+
+      // Threshold: ~35% of a full 90-degree turn (~31.5 degrees)
+      const thresholdAngle = 0.35 * (math.pi / 2);
+
+      int targetDirection = 0;
+      if (velProj.abs() > 320) {
+        // High-velocity flick
+        targetDirection = velProj > 0 ? 1 : -1;
+      } else if (currentAngle.abs() >= thresholdAngle) {
+        targetDirection = currentAngle > 0 ? 1 : -1;
+      } else {
+        // Slid only a little bit -> snap back to original position (0.0 rad)!
+        targetDirection = 0;
+      }
+
+      if (targetDirection == 0) {
+        // Snap back to 0.0 (return to original position)
+        _snapToAngle(fromAngle: currentAngle, toAngle: 0.0, moveOnComplete: null);
+      } else {
+        final targetAngle = targetDirection * (math.pi / 2);
+        final moveName = targetDirection > 0 ? drag.layer : "${drag.layer}'";
+        _snapToAngle(fromAngle: currentAngle, toAngle: targetAngle, moveOnComplete: moveName);
+      }
+
+      _panStartPos = null;
+      _panHit = null;
+      _isCameraRotating = false;
+      return;
+    }
+
+    // Tap detection (minimal movement)
+    if (!_isCameraRotating && _panHit != null && _panStartPos != null) {
       if (widget.onFacetTap != null) {
         widget.onFacetTap!(_panHit!.facetIndex);
         HapticFeedback.selectionClick();
@@ -192,126 +359,7 @@ class _InteractiveCube3DState extends State<InteractiveCube3D>
 
     _panStartPos = null;
     _panHit = null;
-    _isTurnTriggered = false;
     _isCameraRotating = false;
-  }
-
-  /// Maps a swipe on a facelet to a Rubik's Cube turn notation.
-  ///
-  /// Convention: drag a sticker in direction D → the slice that sticker lives
-  /// on moves in that same direction (natural feel).
-  String? _resolveMoveFromSwipe(_HitTestResult hit, Offset delta) {
-    final uScreen = hit.uScreenVec; // +u → screen-right on this face
-    final vScreen = hit.vScreenVec; // +v → screen-down on this face
-
-    final dotU = delta.dx * uScreen.dx + delta.dy * uScreen.dy;
-    final dotV = delta.dx * vScreen.dx + delta.dy * vScreen.dy;
-
-    // Determine dominant swipe axis on this face
-    final isHorizontal = dotU.abs() > dotV.abs();
-
-    // Positive sign means swipe in the +u (horizontal) or +v (vertical) direction
-    final sign = isHorizontal ? (dotU > 0 ? 1 : -1) : (dotV > 0 ? 1 : -1);
-
-    final face = hit.faceIndex;
-    final row  = hit.row;
-    final col  = hit.col;
-
-    // Helper: pick from (positive-sign move, negative-sign move)
-    String pick(String pos, String neg) => sign > 0 ? pos : neg;
-
-    switch (face) {
-      // ── Front face (F, z = +1.5) ──────────────────────────────────────────
-      // +u = right, +v = down
-      case 2:
-        if (isHorizontal) {
-          // Horizontal swipe → moves a horizontal slice (U/E/D)
-          // Swiping right on F top row → U' (top goes right = U')
-          if (row == 0) return pick("U'", "U");
-          if (row == 1) return pick("E",  "E'");
-          if (row == 2) return pick("D",  "D'");
-        } else {
-          // Vertical swipe → moves a vertical slice (L/M/R)
-          // Swiping down on F left col → L (left face goes down = L)
-          if (col == 0) return pick("L",  "L'");
-          if (col == 1) return pick("M",  "M'");
-          if (col == 2) return pick("R'", "R");
-        }
-        break;
-
-      // ── Up face (U, y = +1.5) ─────────────────────────────────────────────
-      // +u = right (world +x), +v = forward (world +z)
-      case 0:
-        if (isHorizontal) {
-          // Horizontal swipe → moves a "depth" slice as seen from top (B/U slice/F)
-          if (row == 0) return pick("B",  "B'");
-          if (row == 1) return pick("U",  "U'"); // middle of U face → rotate U layer
-          if (row == 2) return pick("F'", "F");
-        } else {
-          // Vertical (depth) swipe → moves a left/right slice
-          if (col == 0) return pick("L'", "L");
-          if (col == 1) return pick("M'", "M");
-          if (col == 2) return pick("R",  "R'");
-        }
-        break;
-
-      // ── Down face (D, y = -1.5) ───────────────────────────────────────────
-      case 3:
-        if (isHorizontal) {
-          if (row == 0) return pick("F",  "F'");
-          if (row == 1) return pick("D'", "D");
-          if (row == 2) return pick("B'", "B");
-        } else {
-          if (col == 0) return pick("L'", "L");
-          if (col == 1) return pick("M'", "M");
-          if (col == 2) return pick("R",  "R'");
-        }
-        break;
-
-      // ── Right face (R, x = +1.5) ──────────────────────────────────────────
-      // +u = screen-left (world -z), +v = screen-down (world -y)
-      case 1:
-        if (isHorizontal) {
-          // Horizontal swipe on R → moves a vertical layer (U/E/D)
-          if (row == 0) return pick("U",  "U'");
-          if (row == 1) return pick("E'", "E");
-          if (row == 2) return pick("D'", "D");
-        } else {
-          // Vertical swipe on R → moves a depth slice (F/S/B)
-          if (col == 0) return pick("F'", "F");
-          if (col == 1) return pick("S'", "S");
-          if (col == 2) return pick("B",  "B'");
-        }
-        break;
-
-      // ── Left face (L, x = -1.5) ───────────────────────────────────────────
-      case 4:
-        if (isHorizontal) {
-          if (row == 0) return pick("U'", "U");
-          if (row == 1) return pick("E",  "E'");
-          if (row == 2) return pick("D",  "D'");
-        } else {
-          if (col == 0) return pick("B'", "B");
-          if (col == 1) return pick("S",  "S'");
-          if (col == 2) return pick("F",  "F'");
-        }
-        break;
-
-      // ── Back face (B, z = -1.5) ───────────────────────────────────────────
-      case 5:
-        if (isHorizontal) {
-          if (row == 0) return pick("U",  "U'");
-          if (row == 1) return pick("E'", "E");
-          if (row == 2) return pick("D'", "D");
-        } else {
-          if (col == 0) return pick("R'", "R");
-          if (col == 1) return pick("M'", "M");
-          if (col == 2) return pick("L",  "L'");
-        }
-        break;
-    }
-
-    return null;
   }
 
   _HitTestResult? _hitTest(Offset pos) {
@@ -350,13 +398,6 @@ class _InteractiveCube3DState extends State<InteractiveCube3D>
     final scale = widget.size / 5.2;
     const camDist = 5.5;
 
-    double animAngle = 0;
-    String? animFace;
-    if (_animatingMove != null && _turnController.isAnimating) {
-      animAngle = _turnAnimation.value * _animatingTargetAngle;
-      animFace = _animatingMove![0].toUpperCase();
-    }
-
     final activeState = _preAnimState ?? widget.state;
     final quads = <_ProjectedQuad>[];
 
@@ -365,8 +406,8 @@ class _InteractiveCube3DState extends State<InteractiveCube3D>
         for (var c = 0; c < 3; c++) {
           final quad = _buildStickerQuad(
             f, r, c,
-            animFace: animFace,
-            animAngle: animAngle,
+            animFace: null,
+            animAngle: 0,
             yaw: _yaw,
             pitch: _pitch,
             center: center,
@@ -393,14 +434,18 @@ class _InteractiveCube3DState extends State<InteractiveCube3D>
       child: AnimatedBuilder(
         animation: _turnAnimation,
         builder: (context, _) {
+          final renderedAngle = _turnController.isAnimating
+              ? _snapStartAngle + (_snapTargetAngle - _snapStartAngle) * _turnAnimation.value
+              : (_activeDrag != null ? _dragAngle : 0.0);
+
           return CustomPaint(
             size: Size(widget.size, widget.size),
             painter: _Cube3DPainter(
               state: _preAnimState ?? widget.state,
               yaw: _yaw,
               pitch: _pitch,
-              animFace: _animatingMove != null ? _animatingMove![0].toUpperCase() : null,
-              animAngle: _turnAnimation.value * _animatingTargetAngle,
+              animFace: _animatingFace,
+              animAngle: renderedAngle,
               highlightMove: widget.highlightMove,
             ),
           );
@@ -408,6 +453,23 @@ class _InteractiveCube3DState extends State<InteractiveCube3D>
       ),
     );
   }
+}
+
+class _ActiveLayerDrag {
+  final int faceIndex;
+  final int row;
+  final int col;
+  final String layer;
+  final Offset screenTangent;
+  final double tNormSq;
+
+  _ActiveLayerDrag({
+    required this.faceIndex,
+    required this.row,
+    required this.col,
+    required this.layer,
+    required this.screenTangent,
+  }) : tNormSq = math.max(1.0, screenTangent.dx * screenTangent.dx + screenTangent.dy * screenTangent.dy);
 }
 
 class _HitTestResult {
@@ -484,6 +546,124 @@ _Vec3 _rotateZ(_Vec3 v, double a) {
   final c = math.cos(a);
   final s = math.sin(a);
   return _Vec3(v.x * c - v.y * s, v.x * s + v.y * c, v.z);
+}
+
+/// Rotates a 3D point according to Rubik's cube layer/slice convention.
+///
+/// Positive angle corresponds exactly to the canonical clockwise move
+/// in [CubeState.applyMove].
+_Vec3 _rotateByFace(_Vec3 v, String face, double angle) {
+  switch (face) {
+    case 'U': return _rotateY(v, -angle);
+    case 'D': return _rotateY(v, angle);
+    case 'R': return _rotateX(v, -angle);
+    case 'L': return _rotateX(v, angle);
+    case 'F': return _rotateZ(v, -angle);
+    case 'B': return _rotateZ(v, angle);
+    case 'M': return _rotateX(v, angle);
+    case 'E': return _rotateY(v, angle);
+    case 'S': return _rotateZ(v, -angle);
+    default: return v;
+  }
+}
+
+bool _isCellInAnimLayer(double cx, double cy, double cz, String face) {
+  switch (face) {
+    case 'U': return cy > 0.5;
+    case 'D': return cy < -0.5;
+    case 'R': return cx > 0.5;
+    case 'L': return cx < -0.5;
+    case 'F': return cz > 0.5;
+    case 'B': return cz < -0.5;
+    case 'M': return cx.abs() <= 0.5;
+    case 'E': return cy.abs() <= 0.5;
+    case 'S': return cz.abs() <= 0.5;
+    default: return false;
+  }
+}
+
+_Vec3 _getStickerCenter(int faceIndex, int row, int col) {
+  double cx = 0, cy = 0, cz = 0;
+  switch (faceIndex) {
+    case 0: // U (Up, y = 1.5)
+      cx = (col - 1).toDouble();
+      cy = 1.5;
+      cz = (row - 1).toDouble();
+      break;
+    case 1: // R (Right, x = 1.5)
+      cx = 1.5;
+      cy = (1 - row).toDouble();
+      cz = (1 - col).toDouble();
+      break;
+    case 2: // F (Front, z = 1.5)
+      cx = (col - 1).toDouble();
+      cy = (1 - row).toDouble();
+      cz = 1.5;
+      break;
+    case 3: // D (Down, y = -1.5)
+      cx = (col - 1).toDouble();
+      cy = -1.5;
+      cz = (1 - row).toDouble();
+      break;
+    case 4: // L (Left, x = -1.5)
+      cx = -1.5;
+      cy = (1 - row).toDouble();
+      cz = (col - 1).toDouble();
+      break;
+    case 5: // B (Back, z = -1.5)
+      cx = (1 - col).toDouble();
+      cy = (1 - row).toDouble();
+      cz = -1.5;
+      break;
+  }
+  return _Vec3(cx, cy, cz);
+}
+
+(String, String) _getCandidateLayers(int faceIndex, int row, int col) {
+  switch (faceIndex) {
+    case 0: // U face
+      final rowLayer = (row == 0) ? 'B' : (row == 1 ? 'S' : 'F');
+      final colLayer = (col == 0) ? 'L' : (col == 1 ? 'M' : 'R');
+      return (rowLayer, colLayer);
+    case 1: // R face
+      final rowLayer = (row == 0) ? 'U' : (row == 1 ? 'E' : 'D');
+      final colLayer = (col == 0) ? 'F' : (col == 1 ? 'S' : 'B');
+      return (rowLayer, colLayer);
+    case 2: // F face
+      final rowLayer = (row == 0) ? 'U' : (row == 1 ? 'E' : 'D');
+      final colLayer = (col == 0) ? 'L' : (col == 1 ? 'M' : 'R');
+      return (rowLayer, colLayer);
+    case 3: // D face
+      final rowLayer = (row == 0) ? 'F' : (row == 1 ? 'S' : 'B');
+      final colLayer = (col == 0) ? 'L' : (col == 1 ? 'M' : 'R');
+      return (rowLayer, colLayer);
+    case 4: // L face
+      final rowLayer = (row == 0) ? 'U' : (row == 1 ? 'E' : 'D');
+      final colLayer = (col == 0) ? 'B' : (col == 1 ? 'S' : 'F');
+      return (rowLayer, colLayer);
+    case 5: // B face
+      final rowLayer = (row == 0) ? 'U' : (row == 1 ? 'E' : 'D');
+      final colLayer = (col == 0) ? 'R' : (col == 1 ? 'M' : 'L');
+      return (rowLayer, colLayer);
+    default:
+      return ('U', 'R');
+  }
+}
+
+Offset _projectPoint(
+  _Vec3 v,
+  double yaw,
+  double pitch,
+  Offset center,
+  double scale,
+  double camDist,
+) {
+  final trans = _rotateX(_rotateY(v, yaw), pitch);
+  final k = camDist / (camDist - trans.z);
+  return Offset(
+    center.dx + trans.x * k * scale,
+    center.dy - trans.y * k * scale,
+  );
 }
 
 _ProjectedQuad? _buildStickerQuad(
@@ -568,39 +748,9 @@ _ProjectedQuad? _buildStickerQuad(
     _Vec3(cx, cy, cz) + uDir * (-hw) + vDir * hw,
   ];
 
-  bool isCellInAnimLayer(double cx, double cy, double cz, String face) {
-    switch (face) {
-      case 'U': return cy > 0.5;
-      case 'D': return cy < -0.5;
-      case 'R': return cx > 0.5;
-      case 'L': return cx < -0.5;
-      case 'F': return cz > 0.5;
-      case 'B': return cz < -0.5;
-      case 'M': return cx.abs() <= 0.5;
-      case 'E': return cy.abs() <= 0.5;
-      case 'S': return cz.abs() <= 0.5;
-      default: return false;
-    }
-  }
+  final bool cellRotates = animFace != null && animAngle != 0 && _isCellInAnimLayer(cx, cy, cz, animFace);
 
-  _Vec3 rotateByFace(_Vec3 v, String face, double angle) {
-    switch (face) {
-      case 'U': return _rotateY(v, angle);
-      case 'D': return _rotateY(v, -angle);
-      case 'R': return _rotateX(v, -angle);
-      case 'L': return _rotateX(v, angle);
-      case 'F': return _rotateZ(v, -angle);
-      case 'B': return _rotateZ(v, angle);
-      case 'M': return _rotateX(v, angle);
-      case 'E': return _rotateY(v, -angle);
-      case 'S': return _rotateZ(v, -angle);
-      default: return v;
-    }
-  }
-
-  final bool cellRotates = animFace != null && animAngle != 0 && isCellInAnimLayer(cx, cy, cz, animFace);
-
-  final rotNormal = cellRotates ? rotateByFace(normal, animFace, animAngle) : normal;
+  final rotNormal = cellRotates ? _rotateByFace(normal, animFace, animAngle) : normal;
   final transformedNorm = _rotateX(_rotateY(rotNormal, yaw), pitch).normalized();
 
   if (transformedNorm.z <= 0.05) {
@@ -616,7 +766,7 @@ _ProjectedQuad? _buildStickerQuad(
   final pts = <Offset>[];
   double totalDepth = 0;
   for (final c in localCorners) {
-    final rotC = cellRotates ? rotateByFace(c, animFace, animAngle) : c;
+    final rotC = cellRotates ? _rotateByFace(c, animFace, animAngle) : c;
     final v = _rotateX(_rotateY(rotC, yaw), pitch);
     totalDepth += v.z;
     final k = camDist / (camDist - v.z);
@@ -626,9 +776,9 @@ _ProjectedQuad? _buildStickerQuad(
   }
 
   final cellCenterVec = _Vec3(cx, cy, cz);
-  final rotCenter = cellRotates ? rotateByFace(cellCenterVec, animFace, animAngle) : cellCenterVec;
-  final rotU = cellRotates ? rotateByFace(cellCenterVec + uDir * 0.5, animFace, animAngle) : (cellCenterVec + uDir * 0.5);
-  final rotV = cellRotates ? rotateByFace(cellCenterVec + vDir * 0.5, animFace, animAngle) : (cellCenterVec + vDir * 0.5);
+  final rotCenter = cellRotates ? _rotateByFace(cellCenterVec, animFace, animAngle) : cellCenterVec;
+  final rotU = cellRotates ? _rotateByFace(cellCenterVec + uDir * 0.5, animFace, animAngle) : (cellCenterVec + uDir * 0.5);
+  final rotV = cellRotates ? _rotateByFace(cellCenterVec + vDir * 0.5, animFace, animAngle) : (cellCenterVec + vDir * 0.5);
 
   final centerTrans = _rotateX(_rotateY(rotCenter, yaw), pitch);
   final uTrans = _rotateX(_rotateY(rotU, yaw), pitch);
