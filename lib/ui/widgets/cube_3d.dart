@@ -38,9 +38,9 @@ class InteractiveCube3D extends StatefulWidget {
 
 class _InteractiveCube3DState extends State<InteractiveCube3D>
     with SingleTickerProviderStateMixin {
-  // Camera view angles for standard convex 3D cube view
-  double _yaw = -0.65; // ~-37 degrees (reveals Front & Right)
-  double _pitch = 0.45; // ~+26 degrees (reveals Up / Top)
+  // Camera view angles
+  double _yaw = 0.65; // ~37 degrees
+  double _pitch = -0.45; // ~-26 degrees
 
   // Animation controller for face turns
   late AnimationController _turnController;
@@ -88,8 +88,8 @@ class _InteractiveCube3DState extends State<InteractiveCube3D>
 
   void _resetView() {
     setState(() {
-      _yaw = -0.65;
-      _pitch = 0.45;
+      _yaw = 0.65;
+      _pitch = -0.45;
     });
   }
 
@@ -203,8 +203,8 @@ class _InteractiveCube3DState extends State<InteractiveCube3D>
           if (row == 0) return sign > 0 ? "U'" : "U";
           if (row == 2) return sign > 0 ? "D" : "D'";
         } else {
-          if (col == 0) return sign > 0 ? "L" : "L'";
-          if (col == 2) return sign > 0 ? "R'" : "R";
+          if (col == 0) return sign > 0 ? "L'" : "L";
+          if (col == 2) return sign > 0 ? "R" : "R'";
         }
         break;
 
@@ -233,8 +233,8 @@ class _InteractiveCube3DState extends State<InteractiveCube3D>
           if (row == 0) return sign > 0 ? "U'" : "U";
           if (row == 2) return sign > 0 ? "D" : "D'";
         } else {
-          if (col == 0) return sign > 0 ? "F'" : "F";
-          if (col == 2) return sign > 0 ? "B" : "B'";
+          if (col == 0) return sign > 0 ? "F" : "F'";
+          if (col == 2) return sign > 0 ? "B'" : "B";
         }
         break;
 
@@ -520,10 +520,10 @@ _ProjectedQuad? _buildStickerQuad(
     if (animFace == null || animAngle == 0) return p;
     switch (animFace) {
       case 'U':
-        if (p.y > 0.5) return _rotateY(p, -animAngle);
+        if (p.y > 0.5) return _rotateY(p, animAngle);
         break;
       case 'D':
-        if (p.y < -0.5) return _rotateY(p, animAngle);
+        if (p.y < -0.5) return _rotateY(p, -animAngle);
         break;
       case 'R':
         if (p.x > 0.5) return _rotateX(p, -animAngle);
@@ -549,17 +549,13 @@ _ProjectedQuad? _buildStickerQuad(
   }
 
   final transformedNorm = (transform(normal) - transform(const _Vec3(0, 0, 0))).normalized();
-  // Camera is at +Z (camDist = 5.5) looking at origin (0, 0, 0).
-  // Front-facing exterior faces pointing toward camera have positive Z normal.
-  // Cull back-facing surfaces pointing away from camera (z <= 0.05).
-  if (transformedNorm.z <= 0.05) {
+  if (transformedNorm.z >= 0.05) {
     return null;
   }
 
-  // Light coming from top-right in front of the cube
-  final lightDir = const _Vec3(0.40, 0.65, 0.65).normalized();
-  final diffuse = math.max(0.0, transformedNorm.dot(lightDir));
-  final lighting = 0.72 + 0.28 * diffuse;
+  const lightDir = _Vec3(0.35, 0.75, -0.55);
+  final diffuse = math.max(0.0, transformedNorm.dot(lightDir * -1.0));
+  final lighting = 0.70 + 0.30 * diffuse;
 
   final pts = <Offset>[];
   double totalDepth = 0;
@@ -647,6 +643,7 @@ class _Cube3DPainter extends CustomPainter {
       }
     }
 
+    // Painter's algorithm: far-to-near
     quads.sort((a, b) => a.depth.compareTo(b.depth));
 
     String? hlFace;
@@ -654,42 +651,160 @@ class _Cube3DPainter extends CustomPainter {
       hlFace = highlightMove![0].toUpperCase();
     }
 
-    final borderPaint = Paint()
-      ..color = const Color(0xFF151515)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.6;
-
-    final stickerPaint = Paint()..style = PaintingStyle.fill;
-
     for (final q in quads) {
-      final baseColor = q.color.displayColor;
-      final litColor = Color.fromARGB(
-        255,
-        ((baseColor.r * 255.0) * q.lighting).round().clamp(0, 255),
-        ((baseColor.g * 255.0) * q.lighting).round().clamp(0, 255),
-        ((baseColor.b * 255.0) * q.lighting).round().clamp(0, 255),
-      );
-
-      final path = Path()
-        ..moveTo(q.points[0].dx, q.points[0].dy)
-        ..lineTo(q.points[1].dx, q.points[1].dy)
-        ..lineTo(q.points[2].dx, q.points[2].dy)
-        ..lineTo(q.points[3].dx, q.points[3].dy)
-        ..close();
-
-      stickerPaint.color = litColor;
-      canvas.drawPath(path, stickerPaint);
-      canvas.drawPath(path, borderPaint);
-
-      final faceLetter = ['U', 'R', 'F', 'D', 'L', 'B'][q.faceIndex];
-      if (hlFace == faceLetter) {
-        final hlPaint = Paint()
-          ..color = const Color(0xFF00E676).withValues(alpha: 0.65)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 2.0;
-        canvas.drawPath(path, hlPaint);
-      }
+      _drawCubieCell(canvas, q, hlFace);
     }
+  }
+
+  /// Renders a single cubie face:
+  ///   • dark rounded body (per-face lighting + radial pillow gradient)
+  ///   • inset oval / rounded sticker
+  ///   • subtle gloss sheen on the sticker
+  void _drawCubieCell(Canvas canvas, _ProjectedQuad q, String? hlFace) {
+    final pts = q.points;
+    final lf = q.lighting; // 0.72 – 1.00
+
+    // Approximate cell width in screen pixels (avg projected edge length)
+    double totalEdge = 0;
+    for (int i = 0; i < 4; i++) {
+      totalEdge += (pts[(i + 1) % 4] - pts[i]).distance;
+    }
+    final cellPx = totalEdge / 4;
+
+    // ── 1. Groove gap between cubies ─────────────────────────────────────────
+    final bodyPts = _insetQuad(pts, cellPx * 0.08);
+    final bodyPath = _roundedQuadPath(bodyPts, cellPx * 0.14);
+
+    // ── 2. Cubie body: very dark with a radial "pillow" gradient ─────────────
+    final bodyCenter = Offset(
+      (bodyPts[0].dx + bodyPts[1].dx + bodyPts[2].dx + bodyPts[3].dx) / 4,
+      (bodyPts[0].dy + bodyPts[1].dy + bodyPts[2].dy + bodyPts[3].dy) / 4,
+    );
+    final bodyRadius = cellPx * 0.46;
+
+    // Lighting-sensitive grey range: 18-30 dark, 34-48 highlight centre
+    final darkVal  = (18 + lf * 12).round().clamp(18, 30);
+    final lightVal = (darkVal + 18).clamp(0, 60);
+
+    canvas.drawPath(
+      bodyPath,
+      Paint()
+        ..shader = RadialGradient(
+          center: const Alignment(-0.20, -0.30),
+          radius: 1.20,
+          colors: [
+            Color.fromARGB(255, lightVal, lightVal, lightVal),
+            Color.fromARGB(255, darkVal,  darkVal,  darkVal),
+          ],
+        ).createShader(
+          Rect.fromCircle(center: bodyCenter, radius: bodyRadius),
+        ),
+    );
+
+    // ── 3. Coloured sticker: inset oval (very round corners) ─────────────────
+    final stickerPts = _insetQuad(bodyPts, cellPx * 0.16);
+    final stickerPath = _stickerPath(stickerPts);
+
+    final base = q.color.displayColor;
+    // Keep stickers vivid; only mild darkening for less-lit faces
+    final sf = 0.88 + 0.12 * lf;
+    canvas.drawPath(
+      stickerPath,
+      Paint()
+        ..color = Color.fromARGB(
+          255,
+          (base.r * 255 * sf).round().clamp(0, 255),
+          (base.g * 255 * sf).round().clamp(0, 255),
+          (base.b * 255 * sf).round().clamp(0, 255),
+        )
+        ..style = PaintingStyle.fill,
+    );
+
+    // Gloss sheen overlay (top-left brightspot)
+    final scx = (stickerPts[0].dx + stickerPts[1].dx +
+                 stickerPts[2].dx + stickerPts[3].dx) / 4;
+    final scy = (stickerPts[0].dy + stickerPts[1].dy +
+                 stickerPts[2].dy + stickerPts[3].dy) / 4;
+    canvas.drawPath(
+      stickerPath,
+      Paint()
+        ..shader = RadialGradient(
+          center: const Alignment(-0.15, -0.50),
+          radius: 1.30,
+          colors: const [Color(0x55FFFFFF), Color(0x00FFFFFF)],
+        ).createShader(
+          Rect.fromCircle(center: Offset(scx, scy), radius: cellPx * 0.25),
+        ),
+    );
+
+    // ── 4. Move-highlight outline ─────────────────────────────────────────────
+    final faceLetter = ['U', 'R', 'F', 'D', 'L', 'B'][q.faceIndex];
+    if (hlFace == faceLetter) {
+      canvas.drawPath(
+        bodyPath,
+        Paint()
+          ..color = const Color(0xFF00E676).withValues(alpha: 0.78)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.6,
+      );
+    }
+  }
+
+  // ── Geometry helpers ────────────────────────────────────────────────────────
+
+  /// Moves each corner of [pts] toward the quad's centre by [inset] pixels.
+  static List<Offset> _insetQuad(List<Offset> pts, double inset) {
+    final cx = (pts[0].dx + pts[1].dx + pts[2].dx + pts[3].dx) / 4;
+    final cy = (pts[0].dy + pts[1].dy + pts[2].dy + pts[3].dy) / 4;
+    return pts.map((p) {
+      final dx = cx - p.dx;
+      final dy = cy - p.dy;
+      final len = math.sqrt(dx * dx + dy * dy);
+      if (len < 1e-6) return p;
+      final t = math.min(inset, len * 0.48);
+      return Offset(p.dx + dx / len * t, p.dy + dy / len * t);
+    }).toList();
+  }
+
+  /// Quad path with Bézier-rounded corners of radius [r].
+  static Path _roundedQuadPath(List<Offset> pts, double r) {
+    final path = Path();
+    bool started = false;
+    for (int i = 0; i < 4; i++) {
+      final curr = pts[i];
+      final prev = pts[(i + 3) % 4];
+      final next = pts[(i + 1) % 4];
+      final toPrev = Offset(prev.dx - curr.dx, prev.dy - curr.dy);
+      final toNext = Offset(next.dx - curr.dx, next.dy - curr.dy);
+      final lp = toPrev.distance;
+      final ln = toNext.distance;
+      if (lp < 1e-6 || ln < 1e-6) continue;
+      final cr = math.min(r, math.min(lp, ln) * 0.45);
+      final p1 = Offset(curr.dx + toPrev.dx / lp * cr,
+                        curr.dy + toPrev.dy / lp * cr);
+      final p2 = Offset(curr.dx + toNext.dx / ln * cr,
+                        curr.dy + toNext.dy / ln * cr);
+      if (!started) {
+        path.moveTo(p1.dx, p1.dy);
+        started = true;
+      } else {
+        path.lineTo(p1.dx, p1.dy);
+      }
+      path.quadraticBezierTo(curr.dx, curr.dy, p2.dx, p2.dy);
+    }
+    path.close();
+    return path;
+  }
+
+  /// Very-rounded (≈ oval) sticker path inscribed in [pts].
+  /// Corner radius ≈ 44% of the shortest projected edge → almost circular.
+  static Path _stickerPath(List<Offset> pts) {
+    double minEdge = double.infinity;
+    for (int i = 0; i < 4; i++) {
+      final d = (pts[(i + 1) % 4] - pts[i]).distance;
+      if (d < minEdge) minEdge = d;
+    }
+    return _roundedQuadPath(pts, minEdge * 0.44);
   }
 
   @override
@@ -701,3 +816,4 @@ class _Cube3DPainter extends CustomPainter {
         old.highlightMove != highlightMove;
   }
 }
+
