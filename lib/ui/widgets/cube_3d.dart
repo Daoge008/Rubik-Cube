@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../core/sound_service.dart';
 import '../../models/cube_color.dart';
 import '../../models/cube_state.dart';
 
@@ -115,6 +116,7 @@ class _InteractiveCube3DState extends State<InteractiveCube3D>
 
     _turnController.forward(from: 0.0);
     HapticFeedback.lightImpact();
+    CubeSoundService.instance.playClick();
   }
 
   void _onPanStart(DragStartDetails details) {
