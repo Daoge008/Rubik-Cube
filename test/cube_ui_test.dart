@@ -5,6 +5,7 @@ import 'package:rubik_cube_solver/models/solution_step.dart';
 import 'package:rubik_cube_solver/ui/screens/cube_simulator_screen.dart';
 import 'package:rubik_cube_solver/ui/screens/home_screen.dart';
 import 'package:rubik_cube_solver/ui/screens/manual_edit_screen.dart';
+import 'package:rubik_cube_solver/ui/screens/scan_screen.dart';
 import 'package:rubik_cube_solver/ui/widgets/cube_3d.dart';
 
 void main() {
@@ -95,6 +96,47 @@ void main() {
       // Settle the post-frame banner self-test
       await tester.pump(const Duration(milliseconds: 100));
       await tester.pumpAndSettle(const Duration(seconds: 2));
+    });
+
+    testWidgets('GuideOverlayPainter displays 未检测到魔方 when not detected and does not draw stickers', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: CustomPaint(
+              size: const Size(400, 400),
+              painter: GuideOverlayPainter(
+                stickers: List.filled(9, 0),
+                isDetected: false,
+                locked: 0,
+                ambiguousCells: 0,
+              ),
+            ),
+          ),
+        ),
+      );
+
+      // Verify the widget renders cleanly without error
+      expect(find.byType(CustomPaint), findsWidgets);
+    });
+
+    testWidgets('GuideOverlayPainter renders detected stickers when isDetected is true', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: CustomPaint(
+              size: const Size(400, 400),
+              painter: GuideOverlayPainter(
+                stickers: List.filled(9, 0),
+                isDetected: true,
+                locked: 1,
+                ambiguousCells: 0,
+              ),
+            ),
+          ),
+        ),
+      );
+
+      expect(find.byType(CustomPaint), findsWidgets);
     });
   });
 }

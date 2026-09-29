@@ -158,28 +158,29 @@ void runFrame(PipelineContext* ctx, const FrameView& frame, NativeDetectionResul
 
     std::array<DetectedColor, 9> stickers{};
     int ambiguous = 0;
+    int validCount = 0;
     for (int i = 0; i < 9; ++i) {
         const DetectedColor c = ctx->classifier.classify(sample.lab[i]);
         stickers[i] = c;
         out->stickers[i] = static_cast<int>(c);
+        if (c != DetectedColor::UNKNOWN) ++validCount;
         if (ctx->classifier.ambiguity(sample.lab[i]) >= kAmbiguityWarnRatio) ++ambiguous;
     }
     out->ambiguousCells = ambiguous;
     out->centerColor = static_cast<int>(stickers[4]);
-    out->isDetected = (stickers[4] != DetectedColor::UNKNOWN) ? 1 : 0;
 
-    // The centre sticker is the one cell whose colour is certain on every frame
-    // (it is the largest solid area and never moves between frames), which
-    // makes it the safest sample to refine an anchor with.
-    if (stickers[4] != DetectedColor::UNKNOWN) {
+    const bool isDetected = (stickers[4] != DetectedColor::UNKNOWN) && (validCount >= 7);
+    out->isDetected = isDetected ? 1 : 0;
+
+    // Only update anchors and push votes if a face is genuinely detected
+    if (isDetected) {
         ctx->classifier.updateAnchor(stickers[4], centerRgb);
-    }
+        ctx->aggregator.pushFrame(stickers);
 
-    ctx->aggregator.pushFrame(stickers);
-
-    if (ctx->stepValidator.processDetectedFace(stickers[4], stickers)) {
-        out->stepAdvanced = 1;
-        out->currentStepIndex = static_cast<int>(ctx->stepValidator.getCurrentStepIndex());
+        if (ctx->stepValidator.processDetectedFace(stickers[4], stickers)) {
+            out->stepAdvanced = 1;
+            out->currentStepIndex = static_cast<int>(ctx->stepValidator.getCurrentStepIndex());
+        }
     }
 
     refreshAssembly(ctx);

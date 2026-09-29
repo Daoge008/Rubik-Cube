@@ -21,7 +21,7 @@ const double kGuideSideFraction = 0.72;
 
 class ScanScreen extends StatefulWidget {
   final SolveMode mode;
-  const ScanScreen({Key? key, required this.mode}) : super(key: key);
+  const ScanScreen({super.key, required this.mode});
 
   @override
   State<ScanScreen> createState() => _ScanScreenState();
@@ -247,8 +247,8 @@ class _ScanScreenState extends State<ScanScreen> {
     }
 
     final detection = _scanner.lastDetection;
-    if (detection != null && !detection.isDetected) {
-      return '看不到魔方\n把魔方放进取景框，让它填满框内区域';
+    if (detection == null || !detection.isDetected) {
+      return '未检测到魔方\n请将魔方置于取景框内';
     }
 
     if (_scanner.scannedFacesCount == 0) {
@@ -345,6 +345,7 @@ class _ScanScreenState extends State<ScanScreen> {
   /// these overlays usually drift apart.
   Widget _buildPreview(CameraController controller) {
     final detection = _scanner.lastDetection;
+    final isDetected = detection?.isDetected == true;
 
     return Center(
       child: AspectRatio(
@@ -354,8 +355,9 @@ class _ScanScreenState extends State<ScanScreen> {
           children: [
             CameraPreview(controller),
             CustomPaint(
-              painter: _GuideOverlayPainter(
-                stickers: detection?.stickers,
+              painter: GuideOverlayPainter(
+                stickers: isDetected ? detection?.stickers : null,
+                isDetected: isDetected,
                 locked: _scanner.scannedFacesCount,
                 ambiguousCells: detection?.ambiguousCells ?? 0,
               ),
@@ -462,14 +464,16 @@ class _ScanScreenState extends State<ScanScreen> {
 /// something the user can steer: a wrong reading is visible immediately, so
 /// they can move the cube or the light instead of completing six bad faces and
 /// finding out at the end.
-class _GuideOverlayPainter extends CustomPainter {
-  _GuideOverlayPainter({
+class GuideOverlayPainter extends CustomPainter {
+  GuideOverlayPainter({
     required this.stickers,
+    required this.isDetected,
     required this.locked,
     required this.ambiguousCells,
   });
 
   final List<int>? stickers;
+  final bool isDetected;
   final int locked;
   final int ambiguousCells;
 
@@ -482,13 +486,17 @@ class _GuideOverlayPainter extends CustomPainter {
 
     final borderPaint = Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 2
-      ..color = locked == 0 ? Colors.white70 : const Color(0xFF00E676);
+      ..strokeWidth = 2.0
+      ..color = !isDetected
+          ? Colors.white38
+          : (locked == 0 ? Colors.white : const Color(0xFF00E676));
 
-    // The cells first, so the border and grid lines sit on top of them.
-    if (stickers != null && stickers!.length == 9) {
+    // ONLY draw the sticker colored tiles if a cube is actually detected!
+    if (isDetected && stickers != null && stickers!.length == 9) {
       for (var r = 0; r < 3; r++) {
         for (var c = 0; c < 3; c++) {
+          final stickerVal = stickers![r * 3 + c];
+          if (stickerVal < 0) continue;
           final rect = Rect.fromLTWH(
             left + c * cell,
             top + r * cell,
@@ -496,19 +504,20 @@ class _GuideOverlayPainter extends CustomPainter {
             cell,
           ).deflate(3);
 
-          final color = CubeColor.fromInt(stickers![r * 3 + c]).displayColor;
+          final color = CubeColor.fromInt(stickerVal).displayColor;
           canvas.drawRRect(
             RRect.fromRectAndRadius(rect, const Radius.circular(8)),
-            Paint()..color = color.withValues(alpha: 0.55),
+            Paint()..color = color.withValues(alpha: 0.60),
           );
         }
       }
     }
 
+    // Grid lines inside guide box
     final gridPaint = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1
-      ..color = Colors.white24;
+      ..color = isDetected ? Colors.white24 : Colors.white12;
     for (var i = 1; i < 3; i++) {
       canvas.drawLine(
         Offset(left + i * cell, top),
@@ -522,18 +531,81 @@ class _GuideOverlayPainter extends CustomPainter {
       );
     }
 
+    // Outer guide box border
     canvas.drawRRect(
       RRect.fromRectAndRadius(
         Rect.fromLTWH(left, top, side, side),
-        const Radius.circular(12),
+        const Radius.circular(14),
       ),
       borderPaint,
     );
+
+    // Corner target accents
+    final cornerPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3.6
+      ..strokeCap = StrokeCap.round
+      ..color = isDetected ? const Color(0xFF00E676) : Colors.white54;
+    const cornerLen = 22.0;
+
+    // Top-left
+    canvas.drawLine(Offset(left, top + cornerLen), Offset(left, top), cornerPaint);
+    canvas.drawLine(Offset(left, top), Offset(left + cornerLen, top), cornerPaint);
+    // Top-right
+    canvas.drawLine(Offset(left + side - cornerLen, top), Offset(left + side, top), cornerPaint);
+    canvas.drawLine(Offset(left + side, top), Offset(left + side, top + cornerLen), cornerPaint);
+    // Bottom-left
+    canvas.drawLine(Offset(left, top + side - cornerLen), Offset(left, top + side), cornerPaint);
+    canvas.drawLine(Offset(left, top + side), Offset(left + cornerLen, top + side), cornerPaint);
+    // Bottom-right
+    canvas.drawLine(Offset(left + side - cornerLen, top + side), Offset(left + side, top + side), cornerPaint);
+    canvas.drawLine(Offset(left + side, top + side), Offset(left + side, top + side - cornerLen), cornerPaint);
+
+    // If no cube is detected, display a clear, readable "未检测到魔方" hint
+    if (!isDetected) {
+      final tp = TextPainter(
+        text: const TextSpan(
+          text: '未检测到魔方',
+          style: TextStyle(
+            color: Colors.white70,
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 1.2,
+            shadows: [
+              Shadow(color: Colors.black87, blurRadius: 6),
+            ],
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+
+      final badgeRect = RRect.fromRectAndRadius(
+        Rect.fromCenter(
+          center: Offset(left + side / 2, top + side / 2),
+          width: tp.width + 24,
+          height: tp.height + 14,
+        ),
+        const Radius.circular(16),
+      );
+      canvas.drawRRect(
+        badgeRect,
+        Paint()..color = Colors.black.withValues(alpha: 0.55),
+      );
+
+      tp.paint(
+        canvas,
+        Offset(
+          left + (side - tp.width) / 2,
+          top + (side - tp.height) / 2,
+        ),
+      );
+    }
   }
 
   @override
-  bool shouldRepaint(covariant _GuideOverlayPainter old) {
+  bool shouldRepaint(covariant GuideOverlayPainter old) {
     return old.locked != locked ||
+        old.isDetected != isDetected ||
         old.ambiguousCells != ambiguousCells ||
         !_sameStickers(old.stickers, stickers);
   }

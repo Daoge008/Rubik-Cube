@@ -446,8 +446,14 @@ public:
         rebuildAnchorLab();
     }
 
+    static constexpr float kMaxStickerDistance = 32.0f;
+
     DetectedColor classify(const LabColor& sample) const {
-        return nearest(sample).color;
+        const auto m = nearest(sample);
+        if (m.distance > kMaxStickerDistance) {
+            return DetectedColor::UNKNOWN;
+        }
+        return m.color;
     }
 
     /// How much the runner-up lost by, as a ratio in [0, 1].

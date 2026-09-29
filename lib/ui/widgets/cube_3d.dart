@@ -38,9 +38,9 @@ class InteractiveCube3D extends StatefulWidget {
 
 class _InteractiveCube3DState extends State<InteractiveCube3D>
     with SingleTickerProviderStateMixin {
-  // Camera view angles
-  double _yaw = 0.65; // ~37 degrees
-  double _pitch = -0.45; // ~-26 degrees
+  // Camera view angles for standard convex 3D cube view
+  double _yaw = -0.65; // ~-37 degrees (reveals Front & Right)
+  double _pitch = 0.45; // ~+26 degrees (reveals Up / Top)
 
   // Animation controller for face turns
   late AnimationController _turnController;
@@ -88,8 +88,8 @@ class _InteractiveCube3DState extends State<InteractiveCube3D>
 
   void _resetView() {
     setState(() {
-      _yaw = 0.65;
-      _pitch = -0.45;
+      _yaw = -0.65;
+      _pitch = 0.45;
     });
   }
 
@@ -203,8 +203,8 @@ class _InteractiveCube3DState extends State<InteractiveCube3D>
           if (row == 0) return sign > 0 ? "U'" : "U";
           if (row == 2) return sign > 0 ? "D" : "D'";
         } else {
-          if (col == 0) return sign > 0 ? "L'" : "L";
-          if (col == 2) return sign > 0 ? "R" : "R'";
+          if (col == 0) return sign > 0 ? "L" : "L'";
+          if (col == 2) return sign > 0 ? "R'" : "R";
         }
         break;
 
@@ -233,8 +233,8 @@ class _InteractiveCube3DState extends State<InteractiveCube3D>
           if (row == 0) return sign > 0 ? "U'" : "U";
           if (row == 2) return sign > 0 ? "D" : "D'";
         } else {
-          if (col == 0) return sign > 0 ? "F" : "F'";
-          if (col == 2) return sign > 0 ? "B'" : "B";
+          if (col == 0) return sign > 0 ? "F'" : "F";
+          if (col == 2) return sign > 0 ? "B" : "B'";
         }
         break;
 
@@ -520,10 +520,10 @@ _ProjectedQuad? _buildStickerQuad(
     if (animFace == null || animAngle == 0) return p;
     switch (animFace) {
       case 'U':
-        if (p.y > 0.5) return _rotateY(p, animAngle);
+        if (p.y > 0.5) return _rotateY(p, -animAngle);
         break;
       case 'D':
-        if (p.y < -0.5) return _rotateY(p, -animAngle);
+        if (p.y < -0.5) return _rotateY(p, animAngle);
         break;
       case 'R':
         if (p.x > 0.5) return _rotateX(p, -animAngle);
@@ -549,13 +549,17 @@ _ProjectedQuad? _buildStickerQuad(
   }
 
   final transformedNorm = (transform(normal) - transform(const _Vec3(0, 0, 0))).normalized();
-  if (transformedNorm.z >= 0.05) {
+  // Camera is at +Z (camDist = 5.5) looking at origin (0, 0, 0).
+  // Front-facing exterior faces pointing toward camera have positive Z normal.
+  // Cull back-facing surfaces pointing away from camera (z <= 0.05).
+  if (transformedNorm.z <= 0.05) {
     return null;
   }
 
-  const lightDir = _Vec3(0.35, 0.75, -0.55);
-  final diffuse = math.max(0.0, transformedNorm.dot(lightDir * -1.0));
-  final lighting = 0.70 + 0.30 * diffuse;
+  // Light coming from top-right in front of the cube
+  final lightDir = const _Vec3(0.40, 0.65, 0.65).normalized();
+  final diffuse = math.max(0.0, transformedNorm.dot(lightDir));
+  final lighting = 0.72 + 0.28 * diffuse;
 
   final pts = <Offset>[];
   double totalDepth = 0;
