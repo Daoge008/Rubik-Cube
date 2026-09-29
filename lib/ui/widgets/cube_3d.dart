@@ -548,14 +548,18 @@ _ProjectedQuad? _buildStickerQuad(
     return v;
   }
 
+  // Camera is at +Z; normals pointing toward camera have z > 0.
+  // Cull faces where the normal points AWAY from camera (z <= 0).
   final transformedNorm = (transform(normal) - transform(const _Vec3(0, 0, 0))).normalized();
-  if (transformedNorm.z >= 0.05) {
+  if (transformedNorm.z <= 0.05) {
     return null;
   }
 
-  const lightDir = _Vec3(0.35, 0.75, -0.55);
-  final diffuse = math.max(0.0, transformedNorm.dot(lightDir * -1.0));
-  final lighting = 0.70 + 0.30 * diffuse;
+  // Light comes from upper-left-front; brightest on faces whose normals
+  // face the light most directly.
+  const lightDir = _Vec3(0.40, 0.70, 0.60);
+  final diffuse = math.max(0.0, transformedNorm.dot(lightDir));
+  final lighting = 0.72 + 0.28 * diffuse;
 
   final pts = <Offset>[];
   double totalDepth = 0;
@@ -651,6 +655,45 @@ class _Cube3DPainter extends CustomPainter {
       hlFace = highlightMove![0].toUpperCase();
     }
 
+    // ── Pass 1: draw each face's solid background polygon ────────────────────
+    // Group corner cells by face. For face f, we need the 4 outer corners:
+    //   cell(0,0) pts[0]  ←  top-left  of the face
+    //   cell(0,2) pts[1]  ←  top-right
+    //   cell(2,2) pts[2]  ←  bottom-right
+    //   cell(2,0) pts[3]  ←  bottom-left
+    final faceCorners = <int, List<Offset>>{};  // faceIndex → 4 outer corners
+    final faceLighting = <int, double>{};
+
+    for (final q in quads) {
+      if (!faceCorners.containsKey(q.faceIndex)) {
+        faceCorners[q.faceIndex] = [Offset.zero, Offset.zero, Offset.zero, Offset.zero];
+        faceLighting[q.faceIndex] = q.lighting;
+      }
+      final corners = faceCorners[q.faceIndex]!;
+      if (q.row == 0 && q.col == 0) corners[0] = q.points[0];
+      if (q.row == 0 && q.col == 2) corners[1] = q.points[1];
+      if (q.row == 2 && q.col == 2) corners[2] = q.points[2];
+      if (q.row == 2 && q.col == 0) corners[3] = q.points[3];
+    }
+
+    // Determine face draw order (use average depth of corner cells of each face)
+    final faceDepths = <int, double>{};
+    for (final q in quads) {
+      faceDepths[q.faceIndex] = (faceDepths[q.faceIndex] ?? 0) + q.depth;
+    }
+    final sortedFaces = faceCorners.keys.toList()
+      ..sort((a, b) => (faceDepths[a] ?? 0).compareTo(faceDepths[b] ?? 0));
+
+    // Pure black fill for the entire face area — this is the groove/edge colour
+    final bgPaint = Paint()..color = const Color(0xFF0A0A0A);
+    for (final f in sortedFaces) {
+      final pts = faceCorners[f]!;
+      if (pts.any((p) => p == Offset.zero)) continue;
+      final facePath = _roundedQuadPath(pts, 0); // sharp corners at face boundary
+      canvas.drawPath(facePath, bgPaint);
+    }
+
+    // ── Pass 2: draw individual cubie bodies + stickers ──────────────────────
     for (final q in quads) {
       _drawCubieCell(canvas, q, hlFace);
     }
@@ -672,19 +715,20 @@ class _Cube3DPainter extends CustomPainter {
     final cellPx = totalEdge / 4;
 
     // ── 1. Groove gap between cubies ─────────────────────────────────────────
-    final bodyPts = _insetQuad(pts, cellPx * 0.08);
-    final bodyPath = _roundedQuadPath(bodyPts, cellPx * 0.14);
+    final bodyPts = _insetQuad(pts, cellPx * 0.07);
+    final bodyPath = _roundedQuadPath(bodyPts, cellPx * 0.16);
 
-    // ── 2. Cubie body: very dark with a radial "pillow" gradient ─────────────
+    // ── 2. Cubie body: dark gray with a radial "pillow" gradient ─────────────
     final bodyCenter = Offset(
       (bodyPts[0].dx + bodyPts[1].dx + bodyPts[2].dx + bodyPts[3].dx) / 4,
       (bodyPts[0].dy + bodyPts[1].dy + bodyPts[2].dy + bodyPts[3].dy) / 4,
     );
     final bodyRadius = cellPx * 0.46;
 
-    // Lighting-sensitive grey range: 18-30 dark, 34-48 highlight centre
-    final darkVal  = (18 + lf * 12).round().clamp(18, 30);
-    final lightVal = (darkVal + 18).clamp(0, 60);
+    // Lighting: top face ~78, front ~65, side ~55 — always clearly above #0A0A0A
+    // lf ranges 0.72-1.00; dark edge of gradient 48-78, highlight peak 80-110
+    final darkVal  = (48 + (lf - 0.72) / 0.28 * 30).round().clamp(48, 78);
+    final lightVal = (darkVal + 32).clamp(0, 120);
 
     canvas.drawPath(
       bodyPath,
