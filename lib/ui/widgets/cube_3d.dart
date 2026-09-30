@@ -49,7 +49,7 @@ class InteractiveCube3DState extends State<InteractiveCube3D>
     with TickerProviderStateMixin {
   // Camera view angles
   double _yaw = 0.65; // ~37 degrees
-  double _pitch = -0.45; // ~-26 degrees
+  double _pitch = 0.45; // ~26 degrees looking down at cube (top face clearly visible)
 
   // Animation controller for face turns & snapping
   late AnimationController _turnController;
@@ -72,6 +72,7 @@ class InteractiveCube3DState extends State<InteractiveCube3D>
 
   late final Ticker _autoRotateTicker;
   Duration _lastTickerTime = Duration.zero;
+  double _autoRotateElapsed = 0.0;
 
   @override
   void initState() {
@@ -116,9 +117,14 @@ class InteractiveCube3DState extends State<InteractiveCube3D>
       }
       final dt = (elapsed - _lastTickerTime).inMicroseconds / 1000000.0;
       _lastTickerTime = elapsed;
+      _autoRotateElapsed += dt;
+
       if (!_isCameraRotating && _activeDrag == null && mounted) {
         setState(() {
           _yaw = (_yaw + widget.autoRotateSpeed * dt) % (math.pi * 2);
+          // Gently oscillate pitch around 0.48 so the top (U) face is always
+          // prominently visible and the 3D inspection showcases all faces
+          _pitch = 0.48 + 0.16 * math.sin(_autoRotateElapsed * 0.7);
         });
       }
     });
@@ -135,6 +141,7 @@ class InteractiveCube3DState extends State<InteractiveCube3D>
     }
     if (widget.autoRotate != oldWidget.autoRotate) {
       _lastTickerTime = Duration.zero;
+      _autoRotateElapsed = 0.0;
       if (widget.autoRotate && !_autoRotateTicker.isActive) {
         _autoRotateTicker.start();
       } else if (!widget.autoRotate && _autoRotateTicker.isActive) {
@@ -153,7 +160,7 @@ class InteractiveCube3DState extends State<InteractiveCube3D>
     super.dispose();
   }
 
-  void resetCamera({double yaw = 0.65, double pitch = -0.45}) {
+  void resetCamera({double yaw = 0.65, double pitch = 0.45}) {
     setState(() {
       _yaw = yaw;
       _pitch = pitch;

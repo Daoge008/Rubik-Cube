@@ -84,8 +84,8 @@ class _ChallengeScreenState extends State<ChallengeScreen> {
       _elapsedMilliseconds = 0;
     });
 
-    // Reset camera to comfortable solving perspective
-    _cubeKey.currentState?.resetCamera(yaw: 0.65, pitch: -0.45);
+    // Reset camera to comfortable solving perspective (俯视角度，顶面清晰可见)
+    _cubeKey.currentState?.resetCamera(yaw: 0.65, pitch: 0.45);
 
     _stopwatch.reset();
     _stopwatch.start();

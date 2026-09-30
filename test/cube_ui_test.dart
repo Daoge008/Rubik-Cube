@@ -114,7 +114,7 @@ void main() {
         ),
       );
       final topLeft2 = tester.getTopLeft(find.byType(InteractiveCube3D));
-      await tester.dragFrom(topLeft2 + const Offset(190, 110), const Offset(-70, 0));
+      await tester.dragFrom(topLeft2 + const Offset(200, 110), const Offset(-90, 0));
       await tester.pumpAndSettle();
       expect(movesLeft, isNotEmpty);
       final moveLeft = movesLeft.first;
