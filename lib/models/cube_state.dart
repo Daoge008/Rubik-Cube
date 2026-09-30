@@ -218,14 +218,23 @@ class CubeState {
 
       case 'E':
         // Equatorial row (row=1), same direction as D clockwise:
-        //   F row1 → R row1 → B row1 → L row1 → F row1
-        _cycleStrips(
-          list,
-          [18 + 3, 18 + 4, 18 + 5], // F middle row
-          [9 + 3,  9 + 4,  9 + 5],  // R middle row
-          [45 + 3, 45 + 4, 45 + 5], // B middle row
-          [36 + 3, 36 + 4, 36 + 5], // L middle row
-        );
+        //   R gets F, B gets R (reversed), L gets B (reversed), F gets L
+        final copyE = List<CubeColor>.from(list);
+        list[12] = copyE[21];
+        list[13] = copyE[22];
+        list[14] = copyE[23];
+
+        list[50] = copyE[12];
+        list[49] = copyE[13];
+        list[48] = copyE[14];
+
+        list[39] = copyE[50];
+        list[40] = copyE[49];
+        list[41] = copyE[48];
+
+        list[21] = copyE[39];
+        list[22] = copyE[40];
+        list[23] = copyE[41];
         break;
 
       case 'S':
