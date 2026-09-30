@@ -437,41 +437,80 @@ class _HomeScreenState extends State<HomeScreen> {
                     ],
                   ),
 
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 8),
 
-                  // Row 2: Secondary Quick Controls
+                  // Row 2: Secondary Quick Controls (4 equal segments, guaranteed no overflow)
                   Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceAround,
                     children: [
-                      TextButton.icon(
-                        icon: const Icon(Icons.shuffle_rounded, size: 18),
-                        label: const Text('随机打乱'),
-                        style: TextButton.styleFrom(foregroundColor: Colors.white70),
-                        onPressed: () => _scramble(isShake: false),
-                      ),
-                      TextButton.icon(
-                        icon: const Icon(Icons.undo_rounded, size: 18),
-                        label: const Text('撤销'),
-                        style: TextButton.styleFrom(
-                          foregroundColor: _moveHistory.isNotEmpty ? Colors.white70 : Colors.white24,
+                      Expanded(
+                        child: _quickActionButton(
+                          icon: Icons.shuffle_rounded,
+                          label: '打乱',
+                          onTap: () => _scramble(isShake: false),
                         ),
-                        onPressed: _moveHistory.isNotEmpty ? _undoMove : null,
                       ),
-                      TextButton.icon(
-                        icon: const Icon(Icons.restart_alt_rounded, size: 18),
-                        label: const Text('重置'),
-                        style: TextButton.styleFrom(foregroundColor: Colors.white70),
-                        onPressed: _resetToSolved,
+                      Expanded(
+                        child: _quickActionButton(
+                          icon: Icons.undo_rounded,
+                          label: '撤销',
+                          enabled: _moveHistory.isNotEmpty,
+                          onTap: _moveHistory.isNotEmpty ? _undoMove : null,
+                        ),
                       ),
-                      TextButton.icon(
-                        icon: const Icon(Icons.more_horiz_rounded, size: 18),
-                        label: const Text('更多'),
-                        style: TextButton.styleFrom(foregroundColor: const Color(0xFF40C4FF)),
-                        onPressed: _openToolboxSheet,
+                      Expanded(
+                        child: _quickActionButton(
+                          icon: Icons.restart_alt_rounded,
+                          label: '重置',
+                          onTap: _resetToSolved,
+                        ),
+                      ),
+                      Expanded(
+                        child: _quickActionButton(
+                          icon: Icons.more_horiz_rounded,
+                          label: '更多',
+                          color: const Color(0xFF40C4FF),
+                          onTap: _openToolboxSheet,
+                        ),
                       ),
                     ],
                   ),
                 ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _quickActionButton({
+    required IconData icon,
+    required String label,
+    required VoidCallback? onTap,
+    Color? color,
+    bool enabled = true,
+  }) {
+    final effectiveColor = !enabled
+        ? Colors.white24
+        : (color ?? Colors.white70);
+
+    return InkWell(
+      onTap: enabled ? onTap : null,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 16, color: effectiveColor),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(
+                color: effectiveColor,
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
               ),
             ),
           ],

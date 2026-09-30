@@ -226,7 +226,7 @@ void main() {
       expect(find.byType(InteractiveCube3D), findsOneWidget);
       expect(find.text('复原挑战'), findsOneWidget);
       expect(find.text('求解此魔方'), findsOneWidget);
-      expect(find.text('随机打乱'), findsOneWidget);
+      expect(find.text('打乱'), findsOneWidget);
       expect(find.textContaining('单指转动魔方'), findsOneWidget);
 
       // Open toolbox
