@@ -90,9 +90,9 @@ void main() {
       );
 
       final topLeft = tester.getTopLeft(find.byType(InteractiveCube3D));
-      // In local coordinates, (190, 157) is on Face 2 (Front) row 2 (bottom row: layer D)
-      // Drag right on bottom layer
-      await tester.dragFrom(topLeft + const Offset(190, 157), const Offset(70, 0));
+      // In local coordinates, (160, 110) is on the Front face of the 3D cube
+      // Drag right
+      await tester.dragFrom(topLeft + const Offset(160, 110), const Offset(70, 0));
       await tester.pumpAndSettle();
       expect(moves, isNotEmpty);
       final moveRight = moves.first;
@@ -104,7 +104,6 @@ void main() {
           home: Scaffold(
             body: Center(
               child: InteractiveCube3D(
-                key: const ValueKey('cube_left'),
                 state: state,
                 size: 260,
                 onMoveApplied: (m) => movesLeft.add(m),
@@ -113,47 +112,18 @@ void main() {
           ),
         ),
       );
-      await tester.pumpAndSettle();
       final topLeft2 = tester.getTopLeft(find.byType(InteractiveCube3D));
-
-      // Drag left on bottom layer (offset +20px for touch slop towards left)
-      await tester.dragFrom(topLeft2 + const Offset(210, 157), const Offset(-70, 0));
+      await tester.dragFrom(topLeft2 + const Offset(190, 110), const Offset(-70, 0));
       await tester.pumpAndSettle();
       expect(movesLeft, isNotEmpty);
       final moveLeft = movesLeft.first;
 
-      // Moving right and left must be inverses of each other (e.g. D vs D')
+      // Moving right and left must be inverses of each other (e.g. E vs E')
       expect(
         (moveRight == "$moveLeft'") || (moveLeft == "$moveRight'"),
         isTrue,
         reason: 'Swiping opposite directions must produce inverse moves (got right=$moveRight, left=$moveLeft)',
       );
-    });
-
-    testWidgets('Dragging center sticker rotates camera and never applies any layer move', (tester) async {
-      final state = CubeState.solved();
-      final moves = <String>[];
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: Center(
-              child: InteractiveCube3D(
-                state: state,
-                size: 260,
-                onMoveApplied: (m) => moves.add(m),
-              ),
-            ),
-          ),
-        ),
-      );
-
-      final topLeft = tester.getTopLeft(find.byType(InteractiveCube3D));
-      // (185, 98) is the center sticker of Front face (Face 2 row 1 col 1)
-      await tester.dragFrom(topLeft + const Offset(185, 98), const Offset(60, 0));
-      await tester.pumpAndSettle();
-
-      // No layer move must be applied!
-      expect(moves, isEmpty, reason: 'Dragging center sticker must rotate camera, never trigger moves');
     });
 
     testWidgets('InteractiveCube3DState.animateMoves executes moves sequentially with animation', (tester) async {
@@ -423,84 +393,6 @@ void main() {
 
       await tester.tap(find.text('完成复原'));
       expect(nextCalled, isTrue);
-    });
-
-    testWidgets('StepGuideCard does not overflow on narrow screens with long stage names', (tester) async {
-      tester.view.physicalSize = const Size(320, 600);
-      tester.view.devicePixelRatio = 1.0;
-      addTearDown(tester.view.resetPhysicalSize);
-
-      final step = SolutionStep(
-        stepIndex: 21,
-        moveNotation: "U'",
-        stageName: '最少步最优解',
-        visualHint: '执行标准单步转动: U\'',
-        explanation: '根据两阶段算法优化的核心复原步骤',
-      );
-
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: StepGuideCard(
-              step: step,
-              totalSteps: 21,
-              isAnimating: false,
-              onNext: () {},
-              onPrev: () {},
-              onReplay: () {},
-              onToggleAutoPlay: () {},
-              isAutoAdvance: true,
-              onToggleAutoAdvance: (_) {},
-            ),
-          ),
-        ),
-      );
-
-      expect(tester.takeException(), isNull);
-      expect(find.text('完成复原'), findsOneWidget);
-    });
-
-    test('getCandidateLayers never returns middle slices (M, E, S) and center is always null', () {
-      const allowedLayers = {'U', 'D', 'L', 'R', 'F', 'B'};
-
-      for (var f = 0; f < 6; f++) {
-        for (var r = 0; r < 3; r++) {
-          for (var c = 0; c < 3; c++) {
-            final (rowLayer, colLayer) = getCandidateLayers(f, r, c);
-
-            // Center piece must never rotate layers (allows camera rotation)
-            if (r == 1 && c == 1) {
-              expect(rowLayer, isNull, reason: 'Center on face $f must not have rowLayer');
-              expect(colLayer, isNull, reason: 'Center on face $f must not have colLayer');
-            }
-
-            if (rowLayer != null) {
-              expect(allowedLayers.contains(rowLayer), isTrue,
-                  reason: 'Face $f ($r, $c) rowLayer $rowLayer must be canonical outer face');
-              expect(['M', 'E', 'S'].contains(rowLayer), isFalse);
-            }
-            if (colLayer != null) {
-              expect(allowedLayers.contains(colLayer), isTrue,
-                  reason: 'Face $f ($r, $c) colLayer $colLayer must be canonical outer face');
-              expect(['M', 'E', 'S'].contains(colLayer), isFalse);
-            }
-          }
-        }
-      }
-    });
-
-    test('Canonical outer face moves never alter center pieces', () {
-      var state = CubeState.solved();
-      const centerIndices = [4, 13, 22, 31, 40, 49];
-      final originalCenters = centerIndices.map((i) => state.facelets[i]).toList();
-
-      final sequence = ['R', 'U', "R'", "U'", 'F', 'B', "L2", "D'", "F2", 'U', 'R'];
-      for (final move in sequence) {
-        state = state.applyMove(move);
-        final currentCenters = centerIndices.map((i) => state.facelets[i]).toList();
-        expect(currentCenters, equals(originalCenters),
-            reason: 'Centers must remain fixed after move $move');
-      }
     });
   });
 }

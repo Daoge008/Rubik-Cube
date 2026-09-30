@@ -37,9 +37,11 @@ class CubeState {
   }
 
   bool get isSolved {
-    final solved = CubeState.solved();
-    for (var i = 0; i < 54; i++) {
-      if (facelets[i] != solved.facelets[i]) return false;
+    for (var f = 0; f < 6; f++) {
+      final centerColor = facelets[f * 9 + 4];
+      for (var i = 0; i < 9; i++) {
+        if (facelets[f * 9 + i] != centerColor) return false;
+      }
     }
     return true;
   }
@@ -250,6 +252,102 @@ class CubeState {
       }
     }
     return cur;
+  }
+
+  /// Whole-cube rotation around the X axis (like R, R-L axis).
+  CubeState rotateCubeX() => applyMoves("R M' L'");
+
+  /// Whole-cube rotation around the X axis counter-clockwise (like R').
+  CubeState rotateCubeXPrime() => applyMoves("R' M L");
+
+  /// Whole-cube rotation around the Y axis (like U, U-D axis).
+  CubeState rotateCubeY() => applyMoves("U E' D'");
+
+  /// Whole-cube rotation around the Y axis counter-clockwise (like U').
+  CubeState rotateCubeYPrime() => applyMoves("U' E D");
+
+  /// Whole-cube rotation around the Z axis (like F, F-B axis).
+  CubeState rotateCubeZ() => applyMoves("F S B'");
+
+  /// Whole-cube rotation around the Z axis counter-clockwise (like F').
+  CubeState rotateCubeZPrime() => applyMoves("F' S' B");
+
+  /// Normalizes this cube's 3D orientation so that the White center is on U (facet 4)
+  /// and Green center is on F (facet 22).
+  ///
+  /// This enables the solver to solve cubes with any center orientation (including
+  /// cubes scrambled with middle-slice moves M, E, S or rotated in 3D space).
+  ///
+  /// Returns both the canonical [CubeState] and a function to map moves from
+  /// the canonical orientation back to this cube's current orientation.
+  ({CubeState normalized, String Function(String) mapMove}) normalizeOrientation() {
+    final centerColors = {
+      facelets[4],
+      facelets[13],
+      facelets[22],
+      facelets[31],
+      facelets[40],
+      facelets[49],
+    };
+    if (centerColors.length != 6 ||
+        !centerColors.contains(CubeColor.white) ||
+        !centerColors.contains(CubeColor.green)) {
+      return (normalized: this, mapMove: (String m) => m);
+    }
+
+    var cur = this;
+    // Step 1: bring White center to U (facet 4)
+    if (cur.facelets[31] == CubeColor.white) {
+      cur = cur.rotateCubeX().rotateCubeX();
+    } else if (cur.facelets[22] == CubeColor.white) {
+      cur = cur.rotateCubeX();
+    } else if (cur.facelets[49] == CubeColor.white) {
+      cur = cur.rotateCubeXPrime();
+    } else if (cur.facelets[40] == CubeColor.white) {
+      cur = cur.rotateCubeZ();
+    } else if (cur.facelets[13] == CubeColor.white) {
+      cur = cur.rotateCubeZPrime();
+    }
+
+    // Step 2: bring Green center to F (facet 22)
+    if (cur.facelets[13] == CubeColor.green) {
+      cur = cur.rotateCubeY();
+    } else if (cur.facelets[49] == CubeColor.green) {
+      cur = cur.rotateCubeY().rotateCubeY();
+    } else if (cur.facelets[40] == CubeColor.green) {
+      cur = cur.rotateCubeYPrime();
+    }
+
+    // Map canonical face -> original face
+    const standardFaceToColor = {
+      'U': CubeColor.white,
+      'R': CubeColor.red,
+      'F': CubeColor.green,
+      'D': CubeColor.yellow,
+      'L': CubeColor.orange,
+      'B': CubeColor.blue,
+    };
+    final colorToOrigFace = <CubeColor, String>{
+      facelets[4]: 'U',
+      facelets[13]: 'R',
+      facelets[22]: 'F',
+      facelets[31]: 'D',
+      facelets[40]: 'L',
+      facelets[49]: 'B',
+    };
+
+    String mapMove(String move) {
+      final trimmed = move.trim();
+      if (trimmed.isEmpty) return trimmed;
+      final baseFace = trimmed[0].toUpperCase();
+      final modifier = trimmed.substring(1);
+      final color = standardFaceToColor[baseFace];
+      if (color == null) return move;
+      final mappedFace = colorToOrigFace[color] ?? baseFace;
+      return '$mappedFace$modifier';
+    }
+
+    return (normalized: cur, mapMove: mapMove);
   }
 
   /// Generates a randomized scramble and applies it, returning both

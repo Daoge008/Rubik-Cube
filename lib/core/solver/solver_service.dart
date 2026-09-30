@@ -7,11 +7,16 @@ class SolverService {
   final RubikFfiBridge _bridge = RubikFfiBridge.instance;
 
   String? validateState(CubeState state) {
-    return _bridge.validate(state.toSingmaster());
+    final norm = state.normalizeOrientation().normalized;
+    return _bridge.validate(norm.toSingmaster());
   }
 
   List<SolutionStep> solve(CubeState state, SolveMode mode) {
-    final singmaster = state.toSingmaster();
+    final normRes = state.normalizeOrientation();
+    final norm = normRes.normalized;
+    final mapMove = normRes.mapMove;
+
+    final singmaster = norm.toSingmaster();
 
     if (mode == SolveMode.kociemba) {
       final solutionString = _bridge.solveKociemba(singmaster);
@@ -24,12 +29,13 @@ class SolverService {
 
       final moveTokens = solutionString.split(' ').where((s) => s.isNotEmpty).toList();
       return List.generate(moveTokens.length, (i) {
-        final m = moveTokens[i];
+        final normMove = moveTokens[i];
+        final mappedMove = mapMove(normMove);
         return SolutionStep(
           stepIndex: i + 1,
-          moveNotation: m,
+          moveNotation: mappedMove,
           stageName: "最少步最优解 (Kociemba)",
-          visualHint: "执行标准单步转动: $m",
+          visualHint: "执行标准单步转动: $mappedMove",
           explanation: "根据两阶段算法优化的核心复原步骤",
         );
       });
@@ -37,7 +43,12 @@ class SolverService {
       final jsonString = _bridge.generateCfopJson(singmaster);
       final List<dynamic> rawList = jsonDecode(jsonString);
       return List.generate(rawList.length, (i) {
-        return SolutionStep.fromJson(i + 1, rawList[i]);
+        final raw = rawList[i];
+        final normMoves = (raw['formula'] ?? raw['moves'] ?? '') as String;
+        final mappedFormula = normMoves.split(' ').map(mapMove).join(' ');
+        final updatedJson = Map<String, dynamic>.from(raw);
+        updatedJson['formula'] = mappedFormula;
+        return SolutionStep.fromJson(i + 1, updatedJson);
       });
     }
   }

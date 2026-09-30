@@ -229,20 +229,10 @@ class InteractiveCube3DState extends State<InteractiveCube3D>
     final row = hit.row;
     final col = hit.col;
 
-    // Center piece (row == 1 && col == 1):
-    // Center is fixed to core. Dragging center rotates whole cube camera view.
-    if (row == 1 && col == 1) {
-      return null;
-    }
+    final (rowLayer, colLayer) = _getCandidateLayers(faceIndex, row, col);
 
-    final (rowLayer, colLayer) = getCandidateLayers(faceIndex, row, col);
-
-    final tRow = rowLayer != null
-        ? _computeScreenTangent(faceIndex, row, col, rowLayer)
-        : Offset.zero;
-    final tCol = colLayer != null
-        ? _computeScreenTangent(faceIndex, row, col, colLayer)
-        : Offset.zero;
+    final tRow = _computeScreenTangent(faceIndex, row, col, rowLayer);
+    final tCol = _computeScreenTangent(faceIndex, row, col, colLayer);
 
     final lenRow = tRow.distance;
     final lenCol = tCol.distance;
@@ -256,13 +246,7 @@ class InteractiveCube3DState extends State<InteractiveCube3D>
         ? (delta.dx * tCol.dx + delta.dy * tCol.dy).abs() / lenCol
         : 0.0;
 
-    // Ensure swipe direction aligns sufficiently with the layer movement (>= 35% projection)
-    final bestProj = math.max(projRow, projCol);
-    if (delta.distance > 0 && (bestProj / delta.distance) < 0.35) {
-      return null;
-    }
-
-    if (projRow >= projCol && rowLayer != null && lenRow > 1e-4) {
+    if (projRow >= projCol) {
       return _ActiveLayerDrag(
         faceIndex: faceIndex,
         row: row,
@@ -270,7 +254,7 @@ class InteractiveCube3DState extends State<InteractiveCube3D>
         layer: rowLayer,
         screenTangent: tRow,
       );
-    } else if (colLayer != null && lenCol > 1e-4) {
+    } else {
       return _ActiveLayerDrag(
         faceIndex: faceIndex,
         row: row,
@@ -279,7 +263,6 @@ class InteractiveCube3DState extends State<InteractiveCube3D>
         screenTangent: tCol,
       );
     }
-    return null;
   }
 
   void _onScaleStart(ScaleStartDetails details) {
@@ -435,12 +418,6 @@ class InteractiveCube3DState extends State<InteractiveCube3D>
     }
     return null;
   }
-
-  @visibleForTesting
-  List<dynamic> computeProjectedQuadsForTest() => _computeProjectedQuads();
-
-  @visibleForTesting
-  dynamic hitTestForTest(Offset pos) => _hitTest(pos);
 
   static bool _pointInPolygon(Offset p, List<Offset> poly) {
     if (poly.length < 3) return false;
@@ -681,39 +658,34 @@ _Vec3 _getStickerCenter(int faceIndex, int row, int col) {
   return _Vec3(cx, cy, cz);
 }
 
-/// Determines candidate outer layers for touch gestures on a given face sticker.
-///
-/// Returns only canonical outer faces ('U', 'D', 'L', 'R', 'F', 'B') or null.
-/// Middle-slice moves ('M', 'E', 'S') are strictly excluded to preserve fixed center
-/// positions, preventing unsolvable states and unintended cross-face alterations.
-(String?, String?) getCandidateLayers(int faceIndex, int row, int col) {
+(String, String) _getCandidateLayers(int faceIndex, int row, int col) {
   switch (faceIndex) {
     case 0: // U face
-      final rowLayer = (row == 0) ? 'B' : (row == 2 ? 'F' : null);
-      final colLayer = (col == 0) ? 'L' : (col == 2 ? 'R' : null);
+      final rowLayer = (row == 0) ? 'B' : (row == 1 ? 'S' : 'F');
+      final colLayer = (col == 0) ? 'L' : (col == 1 ? 'M' : 'R');
       return (rowLayer, colLayer);
     case 1: // R face
-      final rowLayer = (row == 0) ? 'U' : (row == 2 ? 'D' : null);
-      final colLayer = (col == 0) ? 'F' : (col == 2 ? 'B' : null);
+      final rowLayer = (row == 0) ? 'U' : (row == 1 ? 'E' : 'D');
+      final colLayer = (col == 0) ? 'F' : (col == 1 ? 'S' : 'B');
       return (rowLayer, colLayer);
     case 2: // F face
-      final rowLayer = (row == 0) ? 'U' : (row == 2 ? 'D' : null);
-      final colLayer = (col == 0) ? 'L' : (col == 2 ? 'R' : null);
+      final rowLayer = (row == 0) ? 'U' : (row == 1 ? 'E' : 'D');
+      final colLayer = (col == 0) ? 'L' : (col == 1 ? 'M' : 'R');
       return (rowLayer, colLayer);
     case 3: // D face
-      final rowLayer = (row == 0) ? 'F' : (row == 2 ? 'B' : null);
-      final colLayer = (col == 0) ? 'L' : (col == 2 ? 'R' : null);
+      final rowLayer = (row == 0) ? 'F' : (row == 1 ? 'S' : 'B');
+      final colLayer = (col == 0) ? 'L' : (col == 1 ? 'M' : 'R');
       return (rowLayer, colLayer);
     case 4: // L face
-      final rowLayer = (row == 0) ? 'U' : (row == 2 ? 'D' : null);
-      final colLayer = (col == 0) ? 'B' : (col == 2 ? 'F' : null);
+      final rowLayer = (row == 0) ? 'U' : (row == 1 ? 'E' : 'D');
+      final colLayer = (col == 0) ? 'B' : (col == 1 ? 'S' : 'F');
       return (rowLayer, colLayer);
     case 5: // B face
-      final rowLayer = (row == 0) ? 'U' : (row == 2 ? 'D' : null);
-      final colLayer = (col == 0) ? 'R' : (col == 2 ? 'L' : null);
+      final rowLayer = (row == 0) ? 'U' : (row == 1 ? 'E' : 'D');
+      final colLayer = (col == 0) ? 'R' : (col == 1 ? 'M' : 'L');
       return (rowLayer, colLayer);
     default:
-      return (null, null);
+      return ('U', 'R');
   }
 }
 

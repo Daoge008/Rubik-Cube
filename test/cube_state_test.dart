@@ -89,5 +89,100 @@ void main() {
             reason: "$slice' should equal $slice * 3");
       }
     });
+
+    test('Whole cube rotations x, y, z preserve solid faces on solved cube', () {
+      final solved = CubeState.solved();
+
+      // x rotation = R M' L'
+      final rotX = solved.applyMove("R").applyMove("M'").applyMove("L'");
+      // Under x rotation, every face must be uniform color
+      for (var f = 0; f < 6; f++) {
+        final color0 = rotX.facelets[f * 9];
+        for (var i = 0; i < 9; i++) {
+          expect(rotX.facelets[f * 9 + i], equals(color0),
+              reason: 'Face $f must remain uniform after x rotation');
+        }
+      }
+
+      // y rotation = U E' D'
+      final rotY = solved.applyMove("U").applyMove("E'").applyMove("D'");
+      for (var f = 0; f < 6; f++) {
+        final color0 = rotY.facelets[f * 9];
+        for (var i = 0; i < 9; i++) {
+          expect(rotY.facelets[f * 9 + i], equals(color0),
+              reason: 'Face $f must remain uniform after y rotation');
+        }
+      }
+
+      // z rotation = F S B'
+      final rotZ = solved.applyMove("F").applyMove("S").applyMove("B'");
+      for (var f = 0; f < 6; f++) {
+        final color0 = rotZ.facelets[f * 9];
+        for (var i = 0; i < 9; i++) {
+          expect(rotZ.facelets[f * 9 + i], equals(color0),
+              reason: 'Face $f must remain uniform after z rotation');
+        }
+      }
+    });
+
+    test('CubeState.normalizeOrientation restores canonical centers for any middle slice move', () {
+      for (final slice in ['M', "M'", 'M2', 'E', "E'", 'E2', 'S', "S'", 'S2']) {
+        final scrambled = CubeState.generateScramble(moveCount: 15).state;
+        final moved = scrambled.applyMove(slice);
+
+        final res = moved.normalizeOrientation();
+        final norm = res.normalized;
+
+        expect(norm.facelets[4], equals(CubeColor.white), reason: 'U center must be White');
+        expect(norm.facelets[13], equals(CubeColor.red), reason: 'R center must be Red');
+        expect(norm.facelets[22], equals(CubeColor.green), reason: 'F center must be Green');
+        expect(norm.facelets[31], equals(CubeColor.yellow), reason: 'D center must be Yellow');
+        expect(norm.facelets[40], equals(CubeColor.orange), reason: 'L center must be Orange');
+        expect(norm.facelets[49], equals(CubeColor.blue), reason: 'B center must be Blue');
+      }
+    });
+
+    test('Mapped solution moves completely restore scrambled cube with middle slice moves', () {
+      for (final slice in ['E', 'M', 'S', "E'", "M'", "S'"]) {
+        // Solved cube with slice move
+        var orig = CubeState.solved().applyMove(slice);
+
+        // Normalize
+        final res = orig.normalizeOrientation();
+        final norm = res.normalized;
+        expect(norm.facelets[4], equals(CubeColor.white));
+        expect(norm.facelets[22], equals(CubeColor.green));
+
+        // Solution on norm: on norm, White is U and Green is F.
+        // Let's find solution moves on norm:
+        // For slice E: norm is solved().applyMoves("U' D") or similar.
+        // If we apply inverse of norm's transformation:
+        // Verify that applying the mapped moves to orig results in isSolved == true!
+        final invMoves = <String>[];
+        if (slice == 'E') {
+          invMoves.addAll(["U'", 'D']);
+        } else if (slice == "E'") {
+          invMoves.addAll(['U', "D'"]);
+        } else if (slice == 'M') {
+          invMoves.addAll(["R'", 'L']);
+        } else if (slice == "M'") {
+          invMoves.addAll(['R', "L'"]);
+        } else if (slice == 'S') {
+          invMoves.addAll(['F', "B'"]);
+        } else if (slice == "S'") {
+          invMoves.addAll(["F'", 'B']);
+        }
+
+        // Apply mapped moves to orig
+        var current = orig;
+        for (final m in invMoves) {
+          final mapped = res.mapMove(m);
+          current = current.applyMove(mapped);
+        }
+
+        expect(current.isSolved, isTrue,
+            reason: 'Applying mapped solution moves must restore cube for slice $slice');
+      }
+    });
   });
 }
