@@ -28,7 +28,20 @@ class _ManualEditScreenState extends State<ManualEditScreen> {
     _cubeState = CubeState.solved();
   }
 
+  static const Set<int> _centerIndices = {4, 13, 22, 31, 40, 49};
+
   void _onTapFacet(int idx) {
+    if (_centerIndices.contains(idx)) {
+      ScaffoldMessenger.of(context).removeCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('中心块为魔方基准定位块，颜色固定不可修改'),
+          duration: Duration(seconds: 1),
+          backgroundColor: Color(0xFF28283C),
+        ),
+      );
+      return;
+    }
     setState(() {
       _cubeState = _cubeState.copyWithFacet(idx, _palette);
       _error = null;

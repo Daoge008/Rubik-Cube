@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../models/solution_step.dart';
 import '../../core/solver/move_explainer.dart';
-import 'beginner_guide_sheet.dart';
 
 class StepGuideCard extends StatelessWidget {
   final SolutionStep step;
