@@ -45,7 +45,12 @@ class SolverService {
       return List.generate(rawList.length, (i) {
         final raw = rawList[i];
         final normMoves = (raw['formula'] ?? raw['moves'] ?? '') as String;
-        final mappedFormula = normMoves.split(' ').map(mapMove).join(' ');
+        final mappedFormula = normMoves
+            .trim()
+            .split(RegExp(r'\s+'))
+            .where((s) => s.isNotEmpty)
+            .map(mapMove)
+            .join(' ');
         final updatedJson = Map<String, dynamic>.from(raw);
         updatedJson['formula'] = mappedFormula;
         return SolutionStep.fromJson(i + 1, updatedJson);

@@ -54,9 +54,8 @@ class _SolverScreenState extends State<SolverScreen> {
           });
         }
       });
-    } catch (e) {
-      // Solving happens synchronously over FFI; an unsolvable or malformed
-      // state used to crash the first frame instead of reporting the problem.
+    } catch (e, stack) {
+      debugPrint('SolverScreen solve error: $e\n$stack');
       _solveError = e.toString();
     }
     _isLoading = false;
