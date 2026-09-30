@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import '../../core/sound_service.dart';
 import '../../models/cube_color.dart';
@@ -10,8 +11,10 @@ import '../../models/cube_state.dart';
 ///
 /// Supports:
 /// - Perspective 3D rendering with dynamic lighting and depth sorting
-/// - Dragging blank space rotates the entire cube camera angle (pitch & yaw)
-/// - Swiping on a face turns that layer/face with animation and haptic feedback
+/// - Single finger on cube turns layer/face with animation and sound
+/// - Blank area does NOT adjust camera perspective with single finger
+/// - Dual fingers (2+ pointers) adjust camera view angle (yaw & pitch)
+/// - Optional autoRotate for observation/inspection phase
 /// - Double tap to reset orientation
 /// - Optional tap-to-color callback for manual calibration mode
 class InteractiveCube3D extends StatefulWidget {
@@ -22,6 +25,8 @@ class InteractiveCube3D extends StatefulWidget {
   final ValueChanged<String>? onMoveApplied;
   final ValueChanged<int>? onFacetTap;
   final String? highlightMove;
+  final bool autoRotate;
+  final double autoRotateSpeed;
 
   const InteractiveCube3D({
     super.key,
@@ -32,6 +37,8 @@ class InteractiveCube3D extends StatefulWidget {
     this.onMoveApplied,
     this.onFacetTap,
     this.highlightMove,
+    this.autoRotate = false,
+    this.autoRotateSpeed = 0.55,
   });
 
   @override
@@ -39,7 +46,7 @@ class InteractiveCube3D extends StatefulWidget {
 }
 
 class InteractiveCube3DState extends State<InteractiveCube3D>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   // Camera view angles
   double _yaw = 0.65; // ~37 degrees
   double _pitch = -0.45; // ~-26 degrees
@@ -62,6 +69,9 @@ class InteractiveCube3DState extends State<InteractiveCube3D>
   bool _isCameraRotating = false;
   _ActiveLayerDrag? _activeDrag;
   double _dragAngle = 0.0;
+
+  late final Ticker _autoRotateTicker;
+  Duration _lastTickerTime = Duration.zero;
 
   @override
   void initState() {
@@ -97,6 +107,24 @@ class InteractiveCube3DState extends State<InteractiveCube3D>
         }
       }
     });
+
+    _autoRotateTicker = createTicker((elapsed) {
+      if (!widget.autoRotate) return;
+      if (_lastTickerTime == Duration.zero) {
+        _lastTickerTime = elapsed;
+        return;
+      }
+      final dt = (elapsed - _lastTickerTime).inMicroseconds / 1000000.0;
+      _lastTickerTime = elapsed;
+      if (!_isCameraRotating && _activeDrag == null && mounted) {
+        setState(() {
+          _yaw = (_yaw + widget.autoRotateSpeed * dt) % (math.pi * 2);
+        });
+      }
+    });
+    if (widget.autoRotate) {
+      _autoRotateTicker.start();
+    }
   }
 
   @override
@@ -105,6 +133,14 @@ class InteractiveCube3DState extends State<InteractiveCube3D>
     if (oldWidget.state != widget.state && !_turnController.isAnimating && _activeDrag == null) {
       _preAnimState = null;
     }
+    if (widget.autoRotate != oldWidget.autoRotate) {
+      _lastTickerTime = Duration.zero;
+      if (widget.autoRotate && !_autoRotateTicker.isActive) {
+        _autoRotateTicker.start();
+      } else if (!widget.autoRotate && _autoRotateTicker.isActive) {
+        _autoRotateTicker.stop();
+      }
+    }
   }
 
   @override
@@ -112,15 +148,27 @@ class InteractiveCube3DState extends State<InteractiveCube3D>
     if (_currentMoveCompleter != null && !_currentMoveCompleter!.isCompleted) {
       _currentMoveCompleter!.complete();
     }
+    _autoRotateTicker.dispose();
     _turnController.dispose();
     super.dispose();
   }
 
-  void _resetView() {
+  void resetCamera({double yaw = 0.65, double pitch = -0.45}) {
     setState(() {
-      _yaw = 0.65;
-      _pitch = -0.45;
+      _yaw = yaw;
+      _pitch = pitch;
     });
+  }
+
+  void setPerspective(double yaw, double pitch) {
+    setState(() {
+      _yaw = yaw;
+      _pitch = pitch;
+    });
+  }
+
+  void _resetView() {
+    resetCamera();
   }
 
   /// Triggers an animated face turn from code (e.g. "R", "U'", "F2").
@@ -268,7 +316,7 @@ class InteractiveCube3DState extends State<InteractiveCube3D>
   void _onScaleStart(ScaleStartDetails details) {
     if (!widget.interactive) return;
 
-    // Dual-finger drag: rotate whole cube (camera)
+    // Dual-finger drag: rotate whole cube perspective (camera)
     if (details.pointerCount >= 2) {
       _isCameraRotating = true;
       _cancelLayerDrag();
@@ -282,19 +330,16 @@ class InteractiveCube3DState extends State<InteractiveCube3D>
 
     if (widget.allowFaceTurns && !_turnController.isAnimating) {
       _panHit = _hitTest(details.localFocalPoint);
-      if (_panHit == null) {
-        _isCameraRotating = true;
-      }
+      // Blank area (_panHit == null) does NOT rotate camera on single finger
     } else {
       _panHit = null;
-      _isCameraRotating = true;
     }
   }
 
   void _onScaleUpdate(ScaleUpdateDetails details) {
     if (!widget.interactive) return;
 
-    // Dual fingers: ALWAYS rotate entire cube (camera)
+    // Dual fingers (2+ pointers): rotate entire cube perspective (camera)
     if (details.pointerCount >= 2) {
       if (_activeDrag != null) {
         _cancelLayerDrag();
@@ -307,12 +352,8 @@ class InteractiveCube3DState extends State<InteractiveCube3D>
       return;
     }
 
-    // Single finger in camera rotation mode
-    if (_isCameraRotating || _panHit == null) {
-      setState(() {
-        _yaw += details.focalPointDelta.dx * 0.012;
-        _pitch = (_pitch + details.focalPointDelta.dy * 0.012).clamp(-1.35, 1.35);
-      });
+    // Single finger on empty/blank space: DO NOT adjust perspective!
+    if (_panHit == null) {
       return;
     }
 

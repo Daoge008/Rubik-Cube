@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:rubik_cube_solver/models/cube_state.dart';
 import 'package:rubik_cube_solver/models/solution_step.dart';
+import 'package:rubik_cube_solver/ui/screens/challenge_screen.dart';
 import 'package:rubik_cube_solver/ui/screens/cube_simulator_screen.dart';
 import 'package:rubik_cube_solver/ui/screens/home_screen.dart';
 import 'package:rubik_cube_solver/ui/screens/manual_edit_screen.dart';
@@ -214,20 +215,26 @@ void main() {
       expect(find.text('2D 展开图'), findsOneWidget);
     });
 
-    testWidgets('HomeScreen displays 3D Simulator button and random scramble button', (tester) async {
+    testWidgets('HomeScreen displays 3D cube stage, challenge button, and dock controls', (tester) async {
       await tester.pumpWidget(
         const MaterialApp(
           home: HomeScreen(),
         ),
       );
 
-      expect(find.text('摄像头自由扫描 (推荐)'), findsOneWidget);
-      expect(find.text('3D 虚拟魔方 (自由模拟 / 练习)'), findsOneWidget);
-      expect(find.text('随机打乱求解'), findsOneWidget);
+      // Verify 3D cube is directly on the home screen
+      expect(find.byType(InteractiveCube3D), findsOneWidget);
+      expect(find.text('复原挑战'), findsOneWidget);
+      expect(find.text('求解此魔方'), findsOneWidget);
+      expect(find.text('随机打乱'), findsOneWidget);
+      expect(find.textContaining('单指转动魔方'), findsOneWidget);
 
-      // Settle the post-frame banner self-test
-      await tester.pump(const Duration(milliseconds: 100));
-      await tester.pumpAndSettle(const Duration(seconds: 2));
+      // Open toolbox
+      await tester.tap(find.text('更多'));
+      await tester.pumpAndSettle();
+      expect(find.text('拍照识别真实魔方'), findsOneWidget);
+      expect(find.text('手动涂色校准求解'), findsOneWidget);
+      expect(find.text('新手公式与口诀速查'), findsOneWidget);
     });
 
     testWidgets('GuideOverlayPainter displays 未检测到魔方 when not detected and does not draw stickers', (tester) async {
@@ -393,6 +400,26 @@ void main() {
 
       await tester.tap(find.text('完成复原'));
       expect(nextCalled, isTrue);
+    });
+
+    testWidgets('ChallengeScreen transitions from inspection to running timer', (tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: ChallengeScreen(),
+        ),
+      );
+
+      // Verify inspection phase
+      expect(find.textContaining('观察阶段'), findsOneWidget);
+      expect(find.text('开始挑战'), findsOneWidget);
+      expect(find.text('换个打乱'), findsOneWidget);
+
+      // Start challenge
+      await tester.tap(find.text('开始挑战'));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.text('放弃并重新开始'), findsOneWidget);
+      expect(find.textContaining('步数: 0 步'), findsOneWidget);
     });
   });
 }

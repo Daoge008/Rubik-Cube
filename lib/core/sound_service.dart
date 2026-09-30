@@ -29,6 +29,8 @@ class CubeSoundService {
 
   /// Backward-compatible alias for [playGearTurn].
   Future<void> playClick() => playGearTurn();
+  Future<void> playTurn() => playGearTurn();
+  Future<void> playComplete() => playGearTurn();
 
   /// Release resources. Called on app dispose if needed.
   Future<void> dispose() => _player.dispose();
